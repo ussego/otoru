@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "id": "ussego.otoru",
+  "name": "Otoru",
+  "version": "1.0.0",
+  "author": "Otoru contributors",
+  "description": "Fast, keyboard-first yt-dlp frontend for Omarchy",
+  "kinds": ["bar-widget"],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Otoru",
+    "description": "Open the Otoru download panel",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}
