@@ -49,8 +49,6 @@ BarWidget {
   onBarChanged: root.injectPanel()
   onSettingsChanged: root.injectPanel()
 
-  // Subtle pulse on the icon while a download is running, matching the
-  // owarp plugin's connecting micro-animation.
   SequentialAnimation {
     running: root.isBusy
     loops: Animation.Infinite
@@ -70,23 +68,29 @@ BarWidget {
     }
   }
 
-  BarIconButton {
+  WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: "\uf019"
-    slotSize: Style.bar.statusSlot
+    text: ""
+    labelVisible: false
+    hasVisualContent: true
     tooltipText: root.isExtracting ? "Extracting…" :
                  root.isBusy ? "Downloading " + root.downloadProgress : "Otoru download"
 
+    OpticalGlyph {
+      anchors.centerIn: parent
+      width: Style.bar.iconCanvas
+      height: Style.bar.iconCanvas
+      text: "\uf019"
+      fontFamily: button.fontFamily
+      fontSize: Style.bar.iconFont
+      color: button.foreground
+    }
+
     onPressed: function(b) {
       if (!root.bar) return
-      if (b === Qt.RightButton) {
-        // Future: quick settings or history. For now, toggle the panel.
-        root.togglePanel()
-      } else {
-        root.togglePanel()
-      }
+      root.togglePanel()
     }
   }
 }

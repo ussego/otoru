@@ -27,7 +27,7 @@ A lightweight, keyboard-first Quickshell bar widget for Omarchy that fronts `yt-
 From the Omarchy plugin marketplace, or directly:
 
 ```
-omarchy plugin add https://github.com/ussego/otoru --enable
+omarchy plugin add https://github.com/ussego/otoru.git --enable
 ```
 
 ## Uninstall
@@ -48,7 +48,7 @@ The plugin is self-contained in its plugin folder — no systemd units, config f
 Inside the panel:
 
 - `enter`: extract the current URL or start the selected download.
-- `tab` / `shift+tab`: move focus between the URL field, mode buttons, and action buttons.
+- `tab` / `shift+tab`: switch to the neighboring panel.
 - `escape`: close the panel.
 
 ## Workflow

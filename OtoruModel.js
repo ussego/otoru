@@ -79,8 +79,6 @@ function availableVideoQualities(maxHeight) {
 }
 
 function progressTemplate() {
-  // Use a non-default prefix ("progress:") because yt-dlp treats the literal
-  // string "download:" as the default [download] prefix and strips it.
   return "progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s"
 }
 
@@ -108,7 +106,7 @@ function parseProgressLine(line) {
   }
 
   var downloaded = field(3)
-  var total = field(4) || field(5) // prefer known total, fallback to estimate
+  var total = field(4) || field(5)
 
   return {
     percent: percent,
@@ -158,10 +156,6 @@ function splitCustomArgs(argString) {
 }
 
 function buildDownloadArgs(job, settings, home, useWebClient) {
-  // yt-dlp writes progress to stderr. We wrap it with sh so stderr is merged
-  // into stdout, and set PYTHONUNBUFFERED=1 so output is flushed live.
-  // This way the panel reads progress lines from the same stdout SplitParser
-  // that already works for the info process.
   var args = ["yt-dlp", "--newline", "--no-warnings", "--no-colors", "--progress", "--progress-delta", "0.3", "--progress-template", progressTemplate()]
   if (useWebClient) args.push("--extractor-args", "youtube:player_client=web")
 

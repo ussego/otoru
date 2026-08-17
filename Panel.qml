@@ -15,10 +15,16 @@ Panel {
   property var hostWidget: null
   readonly property var barIdentity: hostWidget || root
 
+  readonly property color contentForeground: bar ? bar.foreground : Color.foreground
+  readonly property string contentFontFamily: bar ? bar.fontFamily : Style.font.family
+
   readonly property string home: Quickshell.env("HOME")
   readonly property string pluginDir: home + "/.config/omarchy/plugins/ussego.otoru"
   readonly property string settingsPath: home + "/.config/omarchy/ussego.otoru.json"
   readonly property string notifyScript: pluginDir + "/notify-done.sh"
+
+  property bool openedFromHotkey: false
+  property bool popoutSwitchClosing: false
 
   function open() {
     root.openedFromHotkey = false
@@ -32,13 +38,8 @@ Panel {
     root.onOpened()
   }
 
-  function close() {
-    root.controller.hide()
-  }
-
-  function toggle() {
-    root.opened ? root.close() : root.openFromHotkey()
-  }
+  function close() { root.controller.hide() }
+  function toggle() { root.opened ? root.close() : root.openFromHotkey() }
 
   function closeForPopoutSwitch() {
     root.popoutSwitchClosing = true
@@ -46,12 +47,11 @@ Panel {
     Qt.callLater(function() { root.popoutSwitchClosing = false })
   }
 
-  property bool openedFromHotkey: false
-  property bool popoutSwitchClosing: false
-
-  // ------------------------------------------------------------------
-  // Settings
-  // ------------------------------------------------------------------
+  function switchPanel(direction) {
+    if (root.bar && typeof root.bar.switchPanelFrom === "function")
+      return root.bar.switchPanelFrom(root.barIdentity, direction)
+    return false
+  }
 
   function defaultSettings() {
     return {
@@ -160,10 +160,6 @@ Panel {
     function progress(): string { return root.activeProgressPercent || "" }
   }
 
-  // ------------------------------------------------------------------
-  // Lifecycle
-  // ------------------------------------------------------------------
-
   function onOpened() {
     root.detectTools()
     root.errorMessage = ""
@@ -182,10 +178,6 @@ Panel {
     if (!ytDlpVersionProc.running) ytDlpVersionProc.running = true
     if (!ffmpegVersionProc.running) ffmpegVersionProc.running = true
   }
-
-  // ------------------------------------------------------------------
-  // Tool detection
-  // ------------------------------------------------------------------
 
   property string ytDlpVersion: ""
   property bool ytDlpOk: false
@@ -218,10 +210,6 @@ Panel {
     }
   }
 
-  // ------------------------------------------------------------------
-  // Clipboard
-  // ------------------------------------------------------------------
-
   function readClipboard() {
     if (clipProc.running) return
     if (root.currentUrl !== "") return
@@ -243,16 +231,12 @@ Panel {
     }
   }
 
-  // ------------------------------------------------------------------
-  // URL / extraction
-  // ------------------------------------------------------------------
-
   property string currentUrl: ""
   onCurrentUrlChanged: root.useWebClient = false
   property var mediaInfo: null
   property bool useWebClient: false
   readonly property bool canRetryAsWebClient: root.activeStatus === "error" && !root.useWebClient &&
-    /403|forbidden|access denied|sign in|unable to download|blocked|geo/i.test(root.activeError || root.errorMessage || "")
+    /403|forbidden|access denied|sign in|authentication|auth required|authenticate|unable to download|blocked|geo|bot/i.test(root.activeError || root.errorMessage || "")
   property bool extracting: false
   property string errorMessage: ""
   property string rawLog: ""
@@ -265,8 +249,6 @@ Panel {
     if (root.activeJob) root.activeJob.log = (root.activeJob.log || "") + line + "\n"
   }
 
-  // URLs successfully downloaded this session. Prevents auto-clipboard from
-  // pasting the same link again after the user has already downloaded it.
   property var history: []
 
   function rememberUrl(url) {
@@ -291,6 +273,8 @@ Panel {
     root.extracting = true
     root.mediaInfo = null
     root.errorMessage = ""
+    root.activeStatus = ""
+    root.activeError = ""
     root.rawLog = ""
     root.downloadMode = "best"
     root.videoQuality = "best"
@@ -314,7 +298,9 @@ Panel {
     onExited: function(exitCode, exitStatus) {
       root.extracting = false
       if (exitCode !== 0 || exitStatus !== 0) {
-        root.errorMessage = Otoru.friendlyError(root.rawLog, exitCode, exitStatus)
+        root.activeStatus = "error"
+        root.activeError = Otoru.friendlyError(root.rawLog, exitCode, exitStatus)
+        root.errorMessage = root.activeError
       }
     }
   }
@@ -329,12 +315,7 @@ Panel {
     root.availableQualities = Otoru.availableVideoQualities(info.maxHeight)
     if (!info.hasAudio && root.downloadMode === "audio") root.downloadMode = "best"
     if (root.availableQualities.indexOf(root.videoQuality) < 0) root.videoQuality = "best"
-    Qt.callLater(function() { if (downloadButton) downloadButton.forceActiveFocus() })
   }
-
-  // ------------------------------------------------------------------
-  // Download modes and state
-  // ------------------------------------------------------------------
 
   property string downloadMode: "best"
   property string videoQuality: "best"
@@ -423,7 +404,6 @@ Panel {
 
   Process {
     id: downloadProc
-    // yt-dlp progress is merged into stdout by the sh wrapper in buildDownloadArgs.
     stdout: SplitParser {
       onRead: function(data) {
         var p = Otoru.parseProgressLine(data)
@@ -475,9 +455,6 @@ Panel {
   function processQueue() {
     if (root.activeStatus === "downloading" || queueModel.count === 0) return
     var queued = queueModel.get(0)
-    // Copy the roles out before removing the item. Keeping a reference to a
-    // ListModel element after it has been removed can cause crashes when the
-    // download process later writes to job.log.
     var job = {
       url: queued.url,
       title: queued.title,
@@ -535,10 +512,6 @@ Panel {
     Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--new-window", path])
   }
 
-  // ------------------------------------------------------------------
-  // Notifications
-  // ------------------------------------------------------------------
-
   function notifyComplete() {
     var title = root.activeTitle || "Download complete"
     var body = "Saved to " + root.setting("downloadDir", "")
@@ -555,10 +528,6 @@ Panel {
   }
 
   Process { id: notifyProc }
-
-  // ------------------------------------------------------------------
-  // UI helpers
-  // ------------------------------------------------------------------
 
   function modeButtonLabel(mode) {
     if (mode === "best") return "Best Quality"
@@ -585,10 +554,6 @@ Panel {
            customArgsField.activeFocus
   }
 
-  // ------------------------------------------------------------------
-  // Panel UI
-  // ------------------------------------------------------------------
-
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -603,12 +568,13 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      blocked: root.anyFieldFocused()
+      blocked: root.anyFieldFocused() || cookiesFromBrowserDropdown.popupOpen
       onReturnRequested: {
         if (root.mediaInfo && root.activeStatus !== "downloading") root.startDownload()
         else if (!root.mediaInfo && !root.extracting) root.startExtraction()
       }
       onCloseRequested: root.close()
+      onTabRequested: function(direction) { root.switchPanel(direction) }
     }
 
     Flickable {
@@ -625,37 +591,23 @@ Panel {
         width: scroller.width
         spacing: Style.space(12)
 
-        // Header
-        Row {
-          spacing: Style.space(8)
-
-          Text {
-            text: "\uf019"
-            color: root.bar ? root.bar.foreground : Color.foreground
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.title
-            anchors.verticalCenter: parent.verticalCenter
-          }
-
-          Text {
-            text: "otoru"
-            color: root.bar ? root.bar.foreground : Color.foreground
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.title
-            font.bold: true
-            anchors.verticalCenter: parent.verticalCenter
-          }
+        Text {
+          width: parent.width
+          text: "OTORU"
+          color: Qt.darker(root.contentForeground, 1.4)
+          font.family: root.contentFontFamily
+          font.pixelSize: Style.font.caption
+          font.bold: true
+          horizontalAlignment: Text.AlignHCenter
         }
 
-        // Error banner
-        Rectangle {
+        BorderSurface {
           visible: root.errorMessage !== ""
           width: parent.width
           height: errorColumn.implicitHeight + Style.space(16)
           radius: Style.cornerRadius
           color: Util.alpha(Color.urgent, 0.12)
-          border.color: Util.alpha(Color.urgent, 0.35)
-          border.width: Style.normalBorderWidth
+          borderSpec: Border.controlSpec("normal", Color.urgent, Color.urgent)
 
           Column {
             id: errorColumn
@@ -670,7 +622,7 @@ Panel {
               width: parent.width
               text: root.errorMessage
               color: Color.urgent
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              font.family: root.contentFontFamily
               font.pixelSize: Style.font.body
               wrapMode: Text.WordWrap
             }
@@ -678,20 +630,21 @@ Panel {
             Button {
               visible: root.rawLog !== ""
               text: root.showRawLog ? "Hide raw log" : "View raw log"
-              focusable: true
               fontSize: Style.font.bodySmall
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
               onClicked: root.showRawLog = !root.showRawLog
             }
           }
         }
 
-        // Raw log view
-        Rectangle {
+        BorderSurface {
           visible: root.showRawLog && root.rawLog !== ""
           width: parent.width
           height: Math.min(Style.space(160), rawLogText.implicitHeight + Style.space(16))
           radius: Style.cornerRadius
-          color: Util.alpha(root.bar ? root.bar.foreground : Color.foreground, 0.06)
+          color: Style.controlFill(false, false, root.contentForeground, Color.accent)
+          borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
           clip: true
 
           Text {
@@ -699,7 +652,7 @@ Panel {
             anchors.fill: parent
             anchors.margins: Style.space(8)
             text: root.rawLog
-            color: root.bar ? root.bar.foreground : Color.foreground
+            color: root.contentForeground
             font.family: "monospace"
             font.pixelSize: Style.font.caption
             wrapMode: Text.WrapAnywhere
@@ -707,12 +660,14 @@ Panel {
           }
         }
 
-        // URL input
         TextField {
           id: urlField
           width: parent.width
           placeholderText: "Paste a media URL…"
           text: root.currentUrl
+          activeFocusOnTab: false
+          foreground: root.contentForeground
+          font.family: root.contentFontFamily
           onTextChanged: root.currentUrl = text
           onAccepted: root.startExtraction()
 
@@ -724,13 +679,12 @@ Panel {
           }
         }
 
-        // Extracting state
         Text {
           id: extractingLabel
           visible: root.extracting
           text: "Extracting media information…"
-          color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-          font.family: root.bar ? root.bar.fontFamily : Style.font.family
+          color: Qt.darker(root.contentForeground, 1.5)
+          font.family: root.contentFontFamily
           font.pixelSize: Style.font.body
 
           SequentialAnimation {
@@ -742,13 +696,13 @@ Panel {
           }
         }
 
-        // Metadata
-        Rectangle {
+        BorderSurface {
           visible: root.mediaInfo !== null
           width: parent.width
           height: metadataRow.implicitHeight + Style.space(16)
           radius: Style.cornerRadius
-          color: Util.alpha(root.bar ? root.bar.foreground : Color.foreground, 0.06)
+          color: Style.controlFill(false, false, root.contentForeground, Color.accent)
+          borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
 
           Row {
             id: metadataRow
@@ -759,12 +713,13 @@ Panel {
             anchors.rightMargin: Style.space(12)
             spacing: Style.space(12)
 
-            Rectangle {
+            BorderSurface {
               visible: root.mediaInfo && root.mediaInfo.thumbnail !== ""
               width: Style.space(96)
               height: Style.space(72)
               radius: Style.cornerRadius
-              color: Util.alpha(root.bar ? root.bar.foreground : Color.foreground, 0.1)
+              color: Style.controlFill(false, false, root.contentForeground, Color.accent)
+              borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
               clip: true
 
               Image {
@@ -783,8 +738,8 @@ Panel {
               Text {
                 width: parent.width
                 text: root.mediaInfo ? root.mediaInfo.title : ""
-                color: root.bar ? root.bar.foreground : Color.foreground
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                color: root.contentForeground
+                font.family: root.contentFontFamily
                 font.pixelSize: Style.font.body
                 font.bold: true
                 elide: Text.ElideRight
@@ -794,8 +749,8 @@ Panel {
                 visible: root.mediaInfo && root.mediaInfo.uploader !== ""
                 width: parent.width
                 text: root.mediaInfo ? root.mediaInfo.uploader : ""
-                color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                color: Qt.darker(root.contentForeground, 1.5)
+                font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
                 elide: Text.ElideRight
               }
@@ -803,8 +758,8 @@ Panel {
               Text {
                 visible: root.mediaInfo && root.mediaInfo.duration > 0
                 text: root.mediaInfo ? Otoru.formatDuration(root.mediaInfo.duration) : ""
-                color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                color: Qt.darker(root.contentForeground, 1.5)
+                font.family: root.contentFontFamily
                 font.pixelSize: Style.font.bodySmall
               }
             }
@@ -813,7 +768,6 @@ Panel {
           }
         }
 
-        // Mode selector
         Column {
           visible: root.mediaInfo !== null
           width: parent.width
@@ -821,9 +775,9 @@ Panel {
 
           Text {
             text: "Mode"
-            color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.caption
+            color: Qt.darker(root.contentForeground, 1.5)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
             font.bold: true
           }
 
@@ -837,14 +791,14 @@ Panel {
                 required property string modelData
                 text: root.modeButtonLabel(modelData)
                 selected: root.downloadMode === modelData
-                focusable: true
                 fontSize: Style.font.bodySmall
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
                 onClicked: root.downloadMode = modelData
               }
             }
           }
 
-          // Video qualities
           Row {
             visible: root.downloadMode === "video" && root.availableQualities.length > 0
             spacing: Style.space(6)
@@ -852,8 +806,9 @@ Panel {
             Button {
               text: "Best"
               selected: root.videoQuality === "best"
-              focusable: true
               fontSize: Style.font.bodySmall
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
               onClicked: root.videoQuality = "best"
             }
 
@@ -864,14 +819,14 @@ Panel {
                 required property string modelData
                 text: modelData + "p"
                 selected: root.videoQuality === modelData
-                focusable: true
                 fontSize: Style.font.bodySmall
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
                 onClicked: root.videoQuality = modelData
               }
             }
           }
 
-          // Audio format
           Row {
             visible: root.downloadMode === "audio"
             spacing: Style.space(6)
@@ -883,20 +838,21 @@ Panel {
                 required property string modelData
                 text: modelData === "best" ? "Best" : modelData.toUpperCase()
                 selected: root.audioFormat === modelData
-                focusable: true
                 fontSize: Style.font.bodySmall
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
                 onClicked: root.audioFormat = modelData
               }
             }
           }
 
-          // Custom format selector
           TextField {
             id: customFormatField
             visible: root.downloadMode === "custom"
             width: parent.width
             placeholderText: "yt-dlp format selector (e.g. bestvideo[height<=1080]+bestaudio)"
             text: root.setting("customFormatSelector", "")
+            activeFocusOnTab: false
             onTextChanged: root.setSetting("customFormatSelector", text)
 
             Keys.onPressed: function(event) {
@@ -908,16 +864,15 @@ Panel {
           }
         }
 
-        // Download location
         Column {
           width: parent.width
           spacing: Style.space(4)
 
           Text {
             text: "Save to"
-            color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.caption
+            color: Qt.darker(root.contentForeground, 1.5)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
             font.bold: true
           }
 
@@ -926,6 +881,7 @@ Panel {
             width: parent.width
             text: root.setting("downloadDir", "")
             placeholderText: "~/Downloads"
+            activeFocusOnTab: false
             onEditingFinished: root.setSetting("downloadDir", text)
 
             Keys.onPressed: function(event) {
@@ -937,22 +893,22 @@ Panel {
           }
         }
 
-        // Auto-clipboard toggle
         Toggle {
           width: parent.width
           label: "Read URL from clipboard"
           description: "Automatically paste a URL when opening otoru"
           checked: root.setting("autoClipboard", false)
-          foreground: root.bar ? root.bar.foreground : Color.foreground
+          foreground: root.contentForeground
+          fontFamily: root.contentFontFamily
           onClicked: root.setSetting("autoClipboard", !root.setting("autoClipboard", false))
         }
 
-        // Advanced section
         Button {
           text: root.setting("advancedVisible", false) ? "Hide advanced" : "Advanced"
-          focusable: true
           fontSize: Style.font.bodySmall
           bordered: true
+          foreground: root.contentForeground
+          fontFamily: root.contentFontFamily
           onClicked: root.setSetting("advancedVisible", !root.setting("advancedVisible", false))
         }
 
@@ -966,19 +922,21 @@ Panel {
             width: parent.width
             placeholderText: "Output template (default: %(title)s.%(ext)s)"
             text: root.setting("outputTemplate", "")
+            activeFocusOnTab: false
             onEditingFinished: root.setSetting("outputTemplate", text)
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
             }
           }
 
-          Dropdown {
+          SearchableDropdown {
             id: cookiesFromBrowserDropdown
             width: parent.width
             label: "Cookies from browser"
-            foreground: root.bar ? root.bar.foreground : Color.foreground
+            foreground: root.contentForeground
             background: root.bar ? root.bar.background : Color.background
-            popupBorder: root.bar ? root.bar.foreground : Color.foreground
+            popupBorder: root.contentForeground
+            fontFamily: root.contentFontFamily
             value: root.setting("cookiesFromBrowser", "")
             options: [
               { value: "", label: "None" },
@@ -1001,6 +959,7 @@ Panel {
             visible: root.setting("cookiesFromBrowser", "") !== ""
             placeholderText: "Profile name or full config path (optional)"
             text: root.setting("cookiesProfile", "")
+            activeFocusOnTab: false
             onEditingFinished: root.setSetting("cookiesProfile", text)
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
@@ -1012,6 +971,7 @@ Panel {
             width: parent.width
             placeholderText: "Cookies file path (Netscape format)"
             text: root.setting("cookies", "")
+            activeFocusOnTab: false
             onEditingFinished: root.setSetting("cookies", text)
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
@@ -1023,6 +983,7 @@ Panel {
             width: parent.width
             placeholderText: "Proxy URL"
             text: root.setting("proxy", "")
+            activeFocusOnTab: false
             onEditingFinished: root.setSetting("proxy", text)
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
@@ -1038,6 +999,7 @@ Panel {
               width: (parent.width - parent.spacing) / 2
               placeholderText: "Rate limit"
               text: root.setting("rateLimit", "")
+              activeFocusOnTab: false
               onEditingFinished: root.setSetting("rateLimit", text)
               Keys.onPressed: function(event) {
                 if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
@@ -1049,6 +1011,7 @@ Panel {
               width: (parent.width - parent.spacing) / 2
               placeholderText: "Concurrent fragments"
               text: root.setting("concurrentFragments", "")
+              activeFocusOnTab: false
               onEditingFinished: root.setSetting("concurrentFragments", text)
               Keys.onPressed: function(event) {
                 if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
@@ -1061,6 +1024,7 @@ Panel {
             width: parent.width
             placeholderText: "Extra yt-dlp arguments (space separated)"
             text: root.setting("customArgs", "")
+            activeFocusOnTab: false
             onEditingFinished: root.setSetting("customArgs", text)
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
@@ -1068,13 +1032,13 @@ Panel {
           }
         }
 
-        // Active / completed download
-        Rectangle {
+        BorderSurface {
           visible: root.activeStatus !== ""
           width: parent.width
           height: activeColumn.implicitHeight + Style.space(20)
           radius: Style.cornerRadius
-          color: Util.alpha(root.bar ? root.bar.foreground : Color.foreground, 0.06)
+          color: Style.controlFill(false, false, root.contentForeground, Color.accent)
+          borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
 
           Column {
             id: activeColumn
@@ -1091,8 +1055,8 @@ Panel {
                     root.activeStatus === "completed" ? "Finished" :
                     root.activeStatus === "error" ? "Error" :
                     root.activeStatus === "cancelled" ? "Cancelled" : "Preparing"
-              color: root.bar ? root.bar.foreground : Color.foreground
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              color: root.contentForeground
+              font.family: root.contentFontFamily
               font.pixelSize: Style.font.body
               font.bold: true
             }
@@ -1101,37 +1065,46 @@ Panel {
               visible: root.activeTitle !== ""
               width: parent.width
               text: root.activeTitle
-              color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.3)
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              color: Qt.darker(root.contentForeground, 1.3)
+              font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall
               elide: Text.ElideRight
             }
 
-            // Progress bar
-            Rectangle {
+            Row {
               visible: root.activeStatus === "downloading" || root.activeStatus === "completed"
               width: parent.width
-              height: Style.space(10)
-              radius: Style.cornerRadius
-              color: Util.alpha(root.bar ? root.bar.foreground : Color.foreground, 0.12)
+              spacing: Style.space(8)
 
-              Rectangle {
-                width: parent.width * (root.activeProgressPercentValue / 100)
-                height: parent.height
-                radius: parent.radius
-                color: Color.accent
+              BorderSurface {
+                id: progressTrack
+                width: parent.width - (percentLabel.visible ? percentLabel.implicitWidth + parent.spacing : 0)
+                height: Style.space(10)
+                radius: Style.cornerRadius
+                color: Util.alpha(root.contentForeground, 0.12)
+                borderSpec: Border.none()
 
-                Behavior on width { NumberAnimation { duration: 50; easing.type: Easing.Linear } }
+                BorderSurface {
+                  width: parent.width * (root.activeProgressPercentValue / 100)
+                  height: parent.height
+                  radius: parent.radius
+                  color: Color.accent
+                  borderSpec: Border.none()
+
+                  Behavior on width { NumberAnimation { duration: 50; easing.type: Easing.Linear } }
+                }
               }
-            }
 
-            Text {
-              visible: root.activeProgressPercent !== ""
-              text: root.activeProgressPercent
-              color: root.bar ? root.bar.foreground : Color.foreground
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
-              font.pixelSize: Style.font.body
-              font.bold: true
+              Text {
+                id: percentLabel
+                visible: root.activeProgressPercent !== ""
+                text: root.activeProgressPercent
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                anchors.verticalCenter: parent.verticalCenter
+              }
             }
 
             Text {
@@ -1141,8 +1114,8 @@ Panel {
                 root.activeProgressSpeed,
                 root.activeProgressEta ? "· " + root.activeProgressEta + " remaining" : ""
               ].filter(Boolean).join(" ")
-              color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              color: Qt.darker(root.contentForeground, 1.5)
+              font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall
             }
 
@@ -1151,7 +1124,7 @@ Panel {
               width: parent.width
               text: root.activeError
               color: Color.urgent
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall
               wrapMode: Text.WordWrap
             }
@@ -1159,9 +1132,10 @@ Panel {
             Button {
               visible: root.canRetryAsWebClient
               text: "Retry as web client"
-              focusable: true
               fontSize: Style.font.bodySmall
               bordered: true
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
               onClicked: root.retryWithWebClient()
             }
 
@@ -1169,8 +1143,8 @@ Panel {
               visible: root.activeStatus === "completed" && root.activeOutputPath !== ""
               width: parent.width
               text: root.activeOutputPath
-              color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
+              color: Qt.darker(root.contentForeground, 1.5)
+              font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall
               elide: Text.ElideRight
             }
@@ -1181,31 +1155,33 @@ Panel {
               Button {
                 visible: root.activeStatus === "downloading"
                 text: "Cancel"
-                focusable: true
                 fontSize: Style.font.bodySmall
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
                 onClicked: root.cancelActive()
               }
 
               Button {
                 visible: root.activeStatus === "completed" && root.activeOutputDir !== ""
                 text: "Open folder"
-                focusable: true
                 fontSize: Style.font.bodySmall
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
                 onClicked: root.openFolder(root.activeOutputDir)
               }
 
               Button {
                 visible: root.activeStatus !== "downloading"
                 text: "Clear"
-                focusable: true
                 fontSize: Style.font.bodySmall
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
                 onClicked: root.clearActive()
               }
             }
           }
         }
 
-        // Queue
         Column {
           visible: queueModel.count > 0
           width: parent.width
@@ -1213,16 +1189,16 @@ Panel {
 
           Text {
             text: "Queue"
-            color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.5)
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.caption
+            color: Qt.darker(root.contentForeground, 1.5)
+            font.family: root.contentFontFamily
+            font.pixelSize: Style.font.bodySmall
             font.bold: true
           }
 
           Repeater {
             model: queueModel
 
-            Rectangle {
+            BorderSurface {
               required property int index
               required property string url
               required property string title
@@ -1231,7 +1207,8 @@ Panel {
               width: parent.width
               height: queueRow.implicitHeight + Style.space(12)
               radius: Style.cornerRadius
-              color: Util.alpha(root.bar ? root.bar.foreground : Color.foreground, 0.06)
+              color: Style.controlFill(false, false, root.contentForeground, Color.accent)
+              borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
 
               Row {
                 id: queueRow
@@ -1250,8 +1227,8 @@ Panel {
                   Text {
                     width: parent.width
                     text: title || url
-                    color: root.bar ? root.bar.foreground : Color.foreground
-                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    color: root.contentForeground
+                    font.family: root.contentFontFamily
                     font.pixelSize: Style.font.bodySmall
                     elide: Text.ElideRight
                   }
@@ -1259,17 +1236,17 @@ Panel {
                   Text {
                     width: parent.width
                     text: mode
-                    color: Qt.darker(root.bar ? root.bar.foreground : Color.foreground, 1.6)
-                    font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                    color: Qt.darker(root.contentForeground, 1.6)
+                    font.family: root.contentFontFamily
                     font.pixelSize: Style.font.caption
                   }
                 }
 
-                Button {
+                PanelActionButton {
                   id: removeButton
-                  text: "✕"
-                  focusable: true
-                  fontSize: Style.font.bodySmall
+                  iconText: "✕"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
                   anchors.verticalCenter: parent.verticalCenter
                   onClicked: root.removeQueued(index)
                 }
@@ -1278,33 +1255,33 @@ Panel {
           }
         }
 
-        // Actions
         Row {
           spacing: Style.space(8)
           visible: !root.extracting
 
           Button {
-            id: extractButton
             visible: root.mediaInfo === null && root.activeStatus !== "downloading"
             text: "Extract"
-            focusable: true
             active: true
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
             onClicked: root.startExtraction()
           }
 
           Button {
-            id: downloadButton
             visible: root.mediaInfo !== null && root.activeStatus !== "downloading"
             text: "Download"
-            focusable: true
             active: true
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
             onClicked: root.startDownload()
           }
 
           Button {
             visible: root.mediaInfo !== null && root.activeStatus !== "downloading"
             text: "+ Queue"
-            focusable: true
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
             onClicked: root.enqueueCurrent()
           }
         }
