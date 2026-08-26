@@ -25,10 +25,7 @@ Panel {
 
   property bool popoutSwitchClosing: false
 
-// One settings-list row template: icon | label | dim value | chevron.
-// Whole row is the hit target; default-property children are the expander body.
-// Chrome mirrors built-in panels: padded CursorSurface row with hover fill and
-// the shell's own nerd-font chevrons (󰅀 closed / 󰅃 open).
+// Settings-list row: default-property children are the expander body.
 component OptionRow: Column {
   id: optRow
 
@@ -151,14 +148,12 @@ component OptionRow: Column {
     spacing: Style.spacing.lg
   }
 
-  // Bottom divider: closes an open collapsible visually.
   PanelSeparator {
     visible: optRow.open
     foreground: optRow.fg
   }
 }
 
-// Footer action button: icon | label | optional trailing value.
 component FooterButton: BorderSurface {
   id: fbtn
 
@@ -221,7 +216,6 @@ component FooterButton: BorderSurface {
   }
 }
 
-// Small clickable glyph for in-field affordances (paste / clear).
 component InputGlyphButton: Item {
   id: igb
   property string glyph: ""
@@ -932,7 +926,6 @@ component InputGlyphButton: Item {
     return mode
   }
 
-  // Informative row value, e.g. "Best · 1080p", "Audio · MP3".
   function modeValueText() {
     var q = root.mediaInfo && root.mediaInfo.maxHeight > 0 ? root.mediaInfo.maxHeight + "p" : ""
     if (root.downloadMode === "video") {
@@ -1155,7 +1148,6 @@ component InputGlyphButton: Item {
           }
         }
 
-        // Live state hint: what Enter will do, or why the input is bad.
         Text {
           id: inputHint
           visible: !root.extracting && root.activeStatus !== "downloading" && root.activeStatus !== "preparing"
@@ -1191,7 +1183,6 @@ component InputGlyphButton: Item {
           }
         }
 
-        // Context header: thumbnail + overlaid duration badge, title, channel.
         BorderSurface {
           visible: root.mediaInfo !== null
           width: parent.width
@@ -1292,8 +1283,6 @@ component InputGlyphButton: Item {
           }
         }
 
-        // Option list — one row template, N instances. Tight spacing: rows
-        // carry their own padding, so they only need a hair of air between.
         Column {
           width: parent.width
           spacing: Style.spacing.sm
@@ -1335,7 +1324,6 @@ component InputGlyphButton: Item {
             }
           }
 
-          // Quality (best & video modes) — sized resolution buttons.
           Column {
             visible: root.downloadMode === "video" && root.availableQualities.length > 0
             width: parent.width
@@ -1378,7 +1366,6 @@ component InputGlyphButton: Item {
             }
           }
 
-          // Audio format + track (audio mode).
           Column {
             visible: root.downloadMode === "audio"
             width: parent.width
@@ -1550,7 +1537,6 @@ component InputGlyphButton: Item {
           }
         }
 
-        // SponsorBlock — collapsible: master toggle + segment categories.
         OptionRow {
           visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist !== true
           glyph: "\udb83\udea9"
@@ -1951,7 +1937,6 @@ component InputGlyphButton: Item {
           color: Style.controlFill(false, false, root.contentForeground, Color.accent)
           borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
 
-          // Network-plugin-style cycling caption while downloading.
           property int phraseIndex: 0
           readonly property var phrases: [
             "Pulling streams",
@@ -2049,7 +2034,6 @@ component InputGlyphButton: Item {
               }
             }
 
-            // Cycling caption while downloading; the status word otherwise.
             Text {
               id: activeMeta
               width: parent.width
@@ -2204,7 +2188,6 @@ component InputGlyphButton: Item {
           }
         }
 
-        // Save-to: plain form block, always editable — sits right above the commit buttons.
         Column {
           visible: root.mediaInfo !== null
           width: parent.width
@@ -2227,7 +2210,6 @@ component InputGlyphButton: Item {
           }
         }
 
-        // Footer / commit actions — extra gap above marks "commit, not configure"
         Button {
           id: extractButton
           visible: root.mediaInfo === null && root.activeStatus !== "downloading"
@@ -2235,15 +2217,12 @@ component InputGlyphButton: Item {
           width: parent.width
           text: root.extracting ? "Extracting…" : "Extract"
           active: !root.extracting
-          // Static dim while extracting — no pulse animation, the bar icon
-          // still pulses for activity.
           opacity: root.extracting ? 0.7 : 1.0
           foreground: root.contentForeground
           fontFamily: root.contentFontFamily
           onClicked: root.startExtraction()
         }
 
-        // Idle + queued items: kick the queue off without touching the panel.
         Button {
           visible: root.mediaInfo === null && root.activeStatus !== "downloading" && root.activeStatus !== "paused" && !root.extracting && queueModel.count > 0
           width: parent.width
