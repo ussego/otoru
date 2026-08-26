@@ -1,0 +1,4 @@
+# Agent tooling (not plugin code)
+.agents/
+.claude/
+skills-lock.json
