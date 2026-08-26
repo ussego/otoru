@@ -42,6 +42,8 @@ From the Omarchy plugin marketplace, or directly:
 omarchy plugin add https://github.com/ussego/otoru.git --enable
 ```
 
+Marketplace installs are snapshot-verified against the exact commit the marketplace reviewed. The direct command installs the current default branch, which is not verification-bound.
+
 ## Uninstall
 
 ```bash
