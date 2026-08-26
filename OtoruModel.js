@@ -1,7 +1,52 @@
 .pragma library
 
+function fmtSize(f) {
+  if (!f) return 0
+  return Number(f.filesize) || Number(f.filesize_approx) || 0
+}
+
+function formatSize(bytes) {
+  var b = Number(bytes)
+  if (!b || isNaN(b) || b <= 0) return ""
+  var units = ["B", "KB", "MB", "GB"]
+  var i = 0
+  while (b >= 1024 && i < units.length - 1) { b /= 1024; i++ }
+  return (i === 0 ? Math.round(b) : b.toFixed(1)) + " " + units[i]
+}
+
+// Strip prose debris off the tail of a URL: punctuation, quotes, and
+// closing brackets ("see https://x.com/a," / "(https://x.com/a)" pastes).
+function stripUrlJunk(u) {
+  return String(u).replace(/[.,;:!?)\]}"'\u2019\u201d]+$/, "")
+}
+
+// Normalize whatever the user pastes into a usable URL, or "" if it can't
+// be one: trim, take the first http(s) URL (even inside prose), strip
+// trailing junk, and auto-prefix https:// for bare hosts (youtube.com/...).
+// ponytail: single-token-with-dot heuristic also catches file names
+// (notes.md) -> https://notes.md; in a URL field that's the right guess.
+function cleanUrlText(text) {
+  var t = String(text || "").trim()
+  if (!t) return ""
+  // Explicit ytsearch: prefixes are already valid yt-dlp input.
+  if (/^ytsearch/i.test(t)) return stripUrlJunk(t)
+  var m = /https?:\/\/\S+/i.exec(t)
+  if (m) return stripUrlJunk(m[0])
+  if (!/\s/.test(t) && t.indexOf(".") >= 0) {
+    return "https://" + stripUrlJunk(t)
+  }
+  return ""
+}
+
 function looksLikeUrl(text) {
-  return /^https?:\/\/\S+/i.test(String(text || ""))
+  return cleanUrlText(text) !== ""
+}
+
+// Non-empty text that isn't a URL and isn't an explicit ytsearch: prefix —
+// the candidate for "search YouTube for this".
+function isSearchQuery(text) {
+  var t = String(text || "").trim()
+  return t !== "" && cleanUrlText(t) === "" && !/^ytsearch/i.test(t)
 }
 
 function expandHome(path, home) {
@@ -27,9 +72,62 @@ function formatDuration(totalSeconds) {
   var r = s % 60
   var parts = []
   if (h > 0) parts.push(String(h))
-  parts.push(String(h > 0 ? m : m).padStart(h > 0 ? 2 : 1, "0"))
+  parts.push(String(m).padStart(h > 0 ? 2 : 1, "0"))
   parts.push(String(r).padStart(2, "0"))
   return parts.join(":")
+}
+
+function parseVideoInfo(info) {
+  var formats = Array.isArray(info.formats) ? info.formats : []
+  var heights = []
+  var hasAudio = false
+  var audioLanguages = []
+  for (var i = 0; i < formats.length; i++) {
+    var f = formats[i]
+    if (f && f.height && Number(f.height) > 0) heights.push(Number(f.height))
+    if (f && f.acodec && String(f.acodec).toLowerCase() !== "none") {
+      hasAudio = true
+      if (f.language) {
+        var lang = String(f.language).toLowerCase().split(/[-_]/)[0]
+        if (lang && lang !== "" && audioLanguages.indexOf(lang) < 0) audioLanguages.push(lang)
+      }
+    }
+  }
+
+  var hasSubs = false
+  var hasAutoSubs = false
+  try {
+    hasSubs = info.subtitles && Object.keys(info.subtitles).length > 0
+    hasAutoSubs = info.automatic_captions && Object.keys(info.automatic_captions).length > 0
+  } catch (e2) { }
+
+  // Qt here has no WebP image plugin, so prefer non-webp URLs and rewrite
+  // YouTube's vi_webp/*.webp to their jpg equivalents when webp is all we get.
+  var thumbnail = ""
+  var thumbs = Array.isArray(info.thumbnails) ? info.thumbnails : []
+  for (var ti = 0; ti < thumbs.length; ti++) {
+    var tu = thumbs[ti] && thumbs[ti].url ? String(thumbs[ti].url) : ""
+    if (tu && !/\.webp($|\?)/i.test(tu)) thumbnail = tu
+  }
+  if (!thumbnail && info.thumbnail) thumbnail = String(info.thumbnail)
+  if (/\.webp($|\?)/i.test(thumbnail)) {
+    thumbnail = thumbnail.replace("/vi_webp/", "/vi/").replace(/\.webp/i, ".jpg")
+  }
+
+  return {
+    title: String(info.title || "Unknown title"),
+    thumbnail: thumbnail,
+    duration: Number(info.duration) || 0,
+    uploader: String(info.uploader || info.channel || info.artist || ""),
+    formats: formats,
+    hasAudio: hasAudio,
+    maxHeight: heights.length > 0 ? Math.max.apply(null, heights) : 0,
+    extractor: String(info.extractor || ""),
+    audioLanguages: audioLanguages,
+    hasSubs: hasSubs,
+    hasAutoSubs: hasAutoSubs,
+    webpage_url: String(info.webpage_url || "")
+  }
 }
 
 function parseInfo(raw) {
@@ -37,40 +135,43 @@ function parseInfo(raw) {
     var info = JSON.parse(String(raw || "{}"))
     if (!info || typeof info !== "object") return null
 
-    var formats = Array.isArray(info.formats) ? info.formats : []
-    var heights = []
-    var hasAudio = false
-    for (var i = 0; i < formats.length; i++) {
-      var f = formats[i]
-      if (f && f.height && Number(f.height) > 0) heights.push(Number(f.height))
-      if (f && f.acodec && String(f.acodec).toLowerCase() !== "none") hasAudio = true
+    // Playlists arrive as {_type:"playlist", entries:[…]}. For plain URLs
+    // this is flat extraction (entry stubs only — the download re-extracts
+    // each item itself); for ytsearchN it's a wrapper around fully-extracted
+    // entries. A single fully-extracted result (ytsearch1) is unwrapped to
+    // its video card — title/thumbnail/duration should be the song, not the
+    // query.
+    if (info._type === "playlist" || Array.isArray(info.entries)) {
+      var entries = info.entries || []
+      if (entries.length === 1 && Array.isArray(entries[0].formats) && entries[0].formats.length > 0) {
+        return parseVideoInfo(entries[0])
+      }
+      return {
+        isPlaylist: true,
+        title: String(info.title || "Playlist"),
+        thumbnail: "",
+        duration: 0,
+        uploader: String(info.uploader || info.channel || ""),
+        formats: [],
+        hasAudio: true,
+        maxHeight: 0,
+        extractor: String(info.extractor || ""),
+        audioLanguages: [],
+        hasSubs: false,
+        hasAutoSubs: false,
+        count: Number(info.playlist_count) || entries.length,
+        webpage_url: String(info.webpage_url || "")
+      }
     }
 
-    var thumbnail = ""
-    if (info.thumbnail) {
-      thumbnail = String(info.thumbnail)
-    } else if (Array.isArray(info.thumbnails) && info.thumbnails.length > 0) {
-      var last = info.thumbnails[info.thumbnails.length - 1]
-      thumbnail = last && last.url ? String(last.url) : ""
-    }
-
-    return {
-      title: String(info.title || "Unknown title"),
-      thumbnail: thumbnail,
-      duration: Number(info.duration) || 0,
-      uploader: String(info.uploader || info.channel || info.artist || ""),
-      formats: formats,
-      hasAudio: hasAudio,
-      maxHeight: heights.length > 0 ? Math.max.apply(null, heights) : 0,
-      extractor: String(info.extractor || "")
-    }
+    return parseVideoInfo(info)
   } catch (e) {
     return null
   }
 }
 
 function availableVideoQualities(maxHeight) {
-  var thresholds = [1080, 720, 480]
+  var thresholds = [2160, 1440, 1080, 720, 480, 360, 240]
   var out = []
   for (var i = 0; i < thresholds.length; i++) {
     if (maxHeight >= thresholds[i]) out.push(String(thresholds[i]))
@@ -78,8 +179,52 @@ function availableVideoQualities(maxHeight) {
   return out
 }
 
+function bestAudioFormat(formats, lang) {
+  var best = null
+  var bestScore = -1
+  for (var i = 0; i < formats.length; i++) {
+    var f = formats[i]
+    if (!f.acodec || String(f.acodec).toLowerCase() === "none") continue
+    if (lang && String(f.language || "").toLowerCase().split(/[-_]/)[0] !== lang) continue
+    var score = fmtSize(f) || Number(f.abr) || 0
+    if (score > bestScore) { bestScore = score; best = f }
+  }
+  return best
+}
+
+function bestVideoFormat(formats, maxHeight) {
+  var best = null
+  var bestScore = -1
+  for (var i = 0; i < formats.length; i++) {
+    var f = formats[i]
+    if (!f.vcodec || String(f.vcodec).toLowerCase() === "none") continue
+    var h = Number(f.height) || 0
+    if (maxHeight > 0 && h > maxHeight) continue
+    var score = fmtSize(f) || Number(f.tbr) * 125 || h
+    if (score > bestScore) { bestScore = score; best = f }
+  }
+  return best
+}
+
+function estimateQualitySize(info, height) {
+  if (!info || !Array.isArray(info.formats)) return 0
+  return fmtSize(bestVideoFormat(info.formats, Number(height) || 0))
+    + fmtSize(bestAudioFormat(info.formats, ""))
+}
+
+function estimateSize(info, job) {
+  if (!info || !Array.isArray(info.formats)) return 0
+  var j = job || {}
+  var mode = j.mode || "best"
+  if (mode === "custom") return 0
+  if (mode === "audio") return fmtSize(bestAudioFormat(info.formats, j.audioLanguage || ""))
+  var maxH = (mode === "video" && j.quality && j.quality !== "best") ? Number(j.quality) || 0 : 0
+  var total = fmtSize(bestVideoFormat(info.formats, maxH)) + fmtSize(bestAudioFormat(info.formats, ""))
+  return total > 0 ? total : 0
+}
+
 function progressTemplate() {
-  return "progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s"
+  return "progress:%(progress._percent_str)s|%(progress._speed_str)s|%(progress._eta_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(playlist_index)s|%(n_entries)s"
 }
 
 function stripAnsi(s) {
@@ -107,6 +252,9 @@ function parseProgressLine(line) {
 
   var downloaded = field(3)
   var total = field(4) || field(5)
+  var idx = field(6)
+  var count = field(7)
+  var itemPrefix = idx && count ? "[" + idx + "/" + count + "] " : ""
 
   return {
     percent: percent,
@@ -115,12 +263,15 @@ function parseProgressLine(line) {
     eta: field(2),
     downloaded: downloaded,
     total: total,
-    sizeText: downloaded && total ? downloaded + " / " + total : downloaded
+    sizeText: itemPrefix + (downloaded && total ? downloaded + " / " + total : downloaded)
   }
 }
 
 function infoCommand(url, proxy, useWebClient, settings, home) {
   var args = ["yt-dlp", "--no-warnings", "--dump-single-json", "--skip-download"]
+  // Search queries need real (non-flat) extraction to return the resolved
+  // video instead of a playlist stub.
+  if (!/^ytsearch/i.test(String(url))) args.push("--flat-playlist")
   if (useWebClient) args.push("--extractor-args", "youtube:player_client=web")
   if (proxy && String(proxy).trim()) args.push("--proxy", String(proxy).trim())
   var browserCookies = cookiesFromBrowserArg(settings)
@@ -183,19 +334,60 @@ function buildDownloadArgs(job, settings, home, useWebClient) {
   if (settings.customArgs && String(settings.customArgs).trim()) {
     args = args.concat(splitCustomArgs(settings.customArgs))
   }
+  if (settings.sponsorBlock === true) {
+    // ponytail: falls back to the common three when the list is emptied out.
+    var cats = Array.isArray(settings.sponsorBlockCategories) && settings.sponsorBlockCategories.length > 0
+      ? settings.sponsorBlockCategories.join(",") : "sponsor,selfpromo,interaction"
+    args.push("--sponsorblock-remove", cats)
+  }
+  if (settings.useArchive === true) {
+    args.push("--download-archive", outDir + "/.otoru-archive.txt")
+  }
 
+  if (settings.downloadThumbnail === true) {
+    args.push("--write-thumbnail", "--convert-thumbnails", "jpg")
+  }
+  if (settings.embedThumbnail === true) {
+    args.push("--embed-thumbnail")
+  }
+  if (settings.embedSubs === true || settings.includeAutoSubs === true) {
+    var subLang = String(settings.subLanguage || "all").trim()
+    args.push("--sub-langs", subLang || "all")
+    if (settings.embedSubs === true) args.push("--embed-subs")
+    if (settings.includeAutoSubs === true) args.push("--write-auto-subs")
+  }
+
+  // ponytail: DRC preference relies on YouTube's "-drc" format-id suffix;
+  // other sites fall through the alternate selectors unchanged.
+  var preferDrc = settings.preferDrc === true
   var mode = job.mode || "best"
-  if (mode === "audio") {
+  if (mode === "playlist") {
+    // No format selection — yt-dlp picks best per entry and enumerates itself.
+  } else if (mode === "audio") {
     args.push("-x")
     var af = job.audioFormat || settings.audioFormat || "best"
     if (af && String(af) !== "best") args.push("--audio-format", String(af))
+    var langFilter = ""
+    if (job.audioLanguage && String(job.audioLanguage) !== "") {
+      langFilter = "[language=" + String(job.audioLanguage) + "]"
+    }
+    if (preferDrc || langFilter !== "") {
+      var base = "bestaudio" + langFilter
+      var sel = preferDrc ? base + "[format_id$='-drc']/" + base : base
+      args.push("-f", sel + "/bestaudio")
+    }
   } else if (mode === "custom") {
-    var sel = settings.customFormatSelector ? String(settings.customFormatSelector).trim() : ""
-    if (sel) args.push("-f", sel)
+    var sel2 = settings.customFormatSelector ? String(settings.customFormatSelector).trim() : ""
+    if (sel2) args.push("-f", sel2)
   } else if (mode === "video") {
     var q = job.quality || "best"
     if (q !== "best") {
-      args.push("-f", "bestvideo[height<=" + q + "]+bestaudio/best[height<=" + q + "]")
+      var vf = "bestvideo[height<=" + q + "]+bestaudio"
+      if (preferDrc) vf += "[format_id$='-drc']/bestvideo[height<=" + q + "]+bestaudio"
+      vf += "/best[height<=" + q + "]"
+      args.push("-f", vf)
+    } else if (preferDrc) {
+      args.push("-f", "bestvideo*+bestaudio[format_id$='-drc']/bestvideo*+bestaudio/best")
     }
   }
 
@@ -239,6 +431,14 @@ function friendlyError(stderr, exitCode, exitStatus) {
   }
   var first = s.split("\n")[0] || ""
   return "Download failed" + (first ? ": " + first : "")
+}
+
+// ponytail: newest-file-after-timestamp heuristic; swap for --print
+// after_move:filepath plumbing if this ever misfires.
+function resolveNewestCommand(dir, sinceEpoch) {
+  return ["sh", "-c",
+    "find \"$1\" -maxdepth 1 -type f -newermt \"@$2\" ! -name \"*.part\" -printf \"%T@\\t%p\\n\" 2>/dev/null | sort -rn | head -n 1 | cut -f2-",
+    "otoru-resolve", String(dir), String(Math.floor(sinceEpoch))]
 }
 
 function guessOutputPath(settings, job, info, home) {

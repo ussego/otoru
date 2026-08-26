@@ -23,17 +23,239 @@ Panel {
   readonly property string settingsPath: home + "/.config/omarchy/ussego.otoru.json"
   readonly property string notifyScript: pluginDir + "/notify-done.sh"
 
-  property bool openedFromHotkey: false
   property bool popoutSwitchClosing: false
 
-  function open() {
-    root.openedFromHotkey = false
-    root.controller.show()
-    root.onOpened()
+// One settings-list row template: icon | label | dim value | chevron.
+// Whole row is the hit target; default-property children are the expander body.
+// Chrome mirrors built-in panels: padded CursorSurface row with hover fill and
+// the shell's own nerd-font chevrons (󰅀 closed / 󰅃 open).
+component OptionRow: Column {
+  id: optRow
+
+  property string glyph: ""
+  property string label: ""
+  property string valueText: ""
+  property bool chevron: true
+  property bool open: false
+  property color fg: Color.foreground
+  property string fam: Style.font.family
+
+  default property alias expanderContent: expanderSlot.data
+  property alias trailing: trailingSlot.data
+  signal rowClicked()
+
+  width: parent ? parent.width : 0
+  spacing: Style.spacing.lg
+
+  CursorSurface {
+    id: header
+    width: parent.width
+    radius: Style.cornerRadius
+    foreground: optRow.fg
+    hasCursor: hoverHandler.hovered
+    current: optRow.open
+    height: Math.max(glyphItem.height, headerLabel.implicitHeight) + Style.spacing.huge
+
+    readonly property bool hasValue: optRow.valueText !== ""
+    readonly property real chevWidth: optRow.chevron ? chevronText.implicitWidth + Style.spacing.lg : 0
+    readonly property real valWidth: hasValue ? Math.min(valueText.implicitWidth, width * 0.5) + Style.spacing.lg : 0
+
+    HoverHandler { id: hoverHandler }
+
+    MouseArea {
+      anchors.fill: parent
+      cursorShape: optRow.chevron ? Qt.PointingHandCursor : Qt.ArrowCursor
+      onClicked: {
+        optRow.rowClicked()
+        if (optRow.chevron) {
+          // Accordion: opening a row collapses the others.
+          var next = !optRow.open
+          var p = optRow.parent
+          for (var i = 0; i < p.children.length; i++) {
+            var c = p.children[i]
+            if (c !== optRow && c.chevron === true && c.open === true) c.open = false
+          }
+          optRow.open = next
+        }
+      }
+    }
+
+    OpticalGlyph {
+      id: glyphItem
+      anchors.left: parent.left
+      anchors.leftMargin: Style.spacing.xl
+      anchors.verticalCenter: parent.verticalCenter
+      width: Style.space(24)
+      height: width
+      text: optRow.glyph
+      fontFamily: optRow.fam
+      fontSize: Style.font.body
+      color: optRow.fg
+    }
+
+    Text {
+      id: headerLabel
+      anchors.left: glyphItem.right
+      anchors.leftMargin: Style.spacing.lg
+      anchors.verticalCenter: parent.verticalCenter
+      width: Math.max(0, header.width - Style.spacing.xl - Style.space(24) - Style.spacing.lg - header.chevWidth - header.valWidth)
+      text: optRow.label
+      color: optRow.fg
+      font.family: optRow.fam
+      font.pixelSize: Style.font.body
+      elide: Text.ElideRight
+    }
+
+    Text {
+      id: valueText
+      visible: header.hasValue && trailingSlot.width === 0
+      x: header.width - Style.spacing.xl - header.chevWidth - width - (trailingSlot.width ? trailingSlot.width + Style.spacing.lg : 0)
+      anchors.verticalCenter: parent.verticalCenter
+      width: Math.min(implicitWidth, header.width * 0.5)
+      text: optRow.valueText
+      color: Qt.darker(optRow.fg, 1.5)
+      font.family: optRow.fam
+      font.pixelSize: Style.font.bodySmall
+      horizontalAlignment: Text.AlignRight
+      elide: Text.ElideMiddle
+    }
+
+    // Optional trailing control (e.g. a ToggleSwitch). Takes the chevron spot;
+    // pair it with `chevron: false`.
+    Item {
+      id: trailingSlot
+      anchors.right: parent.right
+      anchors.rightMargin: Style.spacing.xl
+      anchors.verticalCenter: parent.verticalCenter
+      width: childrenRect.width
+      height: childrenRect.height
+    }
+
+    Text {
+      id: chevronText
+      visible: optRow.chevron && trailingSlot.width === 0
+      anchors.right: parent.right
+      anchors.rightMargin: Style.spacing.xl
+      anchors.verticalCenter: parent.verticalCenter
+      text: optRow.open ? "\udb80\udd43" : "\udb80\udd40"
+      color: Qt.darker(optRow.fg, 1.2)
+      font.family: optRow.fam
+      font.pixelSize: Style.font.body
+    }
   }
 
+  Column {
+    id: expanderSlot
+    visible: optRow.open
+    width: parent.width
+    spacing: Style.spacing.lg
+  }
+
+  // Bottom divider: closes an open collapsible visually.
+  PanelSeparator {
+    visible: optRow.open
+    foreground: optRow.fg
+  }
+}
+
+// Footer action button: icon | label | optional trailing value.
+component FooterButton: BorderSurface {
+  id: fbtn
+
+  property string glyph: ""
+  property string labelText: ""
+  property string valueText: ""
+  property bool primary: false
+  property color fg: Color.foreground
+  property string fam: Style.font.family
+  signal act()
+
+  height: footRow.implicitHeight + Style.spacing.huge
+  implicitWidth: footRow.implicitWidth + Style.spacing.huge
+  radius: Style.cornerRadius
+  color: footArea.pressed ? Style.pressedFillFor(fbtn.fg, Color.accent)
+    : fbtn.primary ? Style.selectedFillFor(fbtn.fg, Color.accent)
+    : Style.controlFill(false, false, fbtn.fg, Color.accent)
+  borderSpec: fbtn.primary ? Border.none() : Border.controlSpec("normal", fbtn.fg, Color.accent)
+
+  Row {
+    id: footRow
+    anchors.centerIn: parent
+    spacing: Style.spacing.controlGap
+
+    OpticalGlyph {
+      anchors.verticalCenter: parent.verticalCenter
+      text: fbtn.glyph
+      fontFamily: fbtn.fam
+      fontSize: Style.font.body
+      color: fbtn.fg
+      width: Style.space(18)
+      height: width
+    }
+
+    Text {
+      anchors.verticalCenter: parent.verticalCenter
+      text: fbtn.labelText
+      color: fbtn.fg
+      font.family: fbtn.fam
+      font.pixelSize: Style.font.body
+      font.bold: fbtn.primary
+    }
+
+    Text {
+      visible: fbtn.valueText !== ""
+      anchors.verticalCenter: parent.verticalCenter
+      text: fbtn.valueText
+      color: Qt.darker(fbtn.fg, 1.3)
+      font.family: fbtn.fam
+      font.pixelSize: Style.font.bodySmall
+    }
+  }
+
+  MouseArea {
+    id: footArea
+    anchors.fill: parent
+    hoverEnabled: true
+    cursorShape: Qt.PointingHandCursor
+    onClicked: fbtn.act()
+  }
+}
+
+// Small clickable glyph for in-field affordances (paste / clear).
+component InputGlyphButton: Item {
+  id: igb
+  property string glyph: ""
+  property color fg: Color.foreground
+  property string fam: Style.font.family
+  signal clicked()
+  width: Style.space(26)
+  height: Style.space(26)
+
+  Rectangle {
+    anchors.fill: parent
+    radius: Style.cornerRadius
+    color: mouse.containsMouse ? Util.alpha(igb.fg, 0.12) : "transparent"
+  }
+
+  OpticalGlyph {
+    anchors.centerIn: parent
+    text: igb.glyph
+    fontFamily: igb.fam
+    fontSize: Style.font.bodySmall
+    color: Qt.darker(igb.fg, 1.3)
+  }
+
+  MouseArea {
+    id: mouse
+    anchors.fill: parent
+    hoverEnabled: true
+    cursorShape: Qt.PointingHandCursor
+    onClicked: igb.clicked()
+  }
+}
+
+  function open() { root.openFromHotkey() }
   function openFromHotkey() {
-    root.openedFromHotkey = true
     root.controller.show()
     root.onOpened()
   }
@@ -57,8 +279,9 @@ Panel {
     return {
       downloadDir: home + "/Downloads",
       autoClipboard: true,
+      autoExtractClipboard: true,
+      clearInputAfterDownload: true,
       audioFormat: "best",
-      quality: "best",
       advancedVisible: false,
       outputTemplate: "%(title)s.%(ext)s",
       cookies: "",
@@ -68,7 +291,19 @@ Panel {
       rateLimit: "",
       concurrentFragments: "",
       customFormatSelector: "",
-      customArgs: ""
+      customArgs: "",
+      downloadThumbnail: false,
+      embedThumbnail: false,
+      embedSubs: false,
+      includeAutoSubs: false,
+      preferDrc: false,
+      sponsorBlock: false,
+      sponsorBlockCategories: ["sponsor", "selfpromo", "interaction"],
+      useArchive: false,
+      saveHistory: true,
+      history: [],
+      subLanguage: "all",
+      postDownloadAction: "nothing"
     }
   }
 
@@ -113,6 +348,7 @@ Panel {
       }
     } catch (e) { }
     root.settings = next
+    root.history = Array.isArray(next.history) ? next.history : []
     root.settingsLoaded = true
   }
 
@@ -140,7 +376,7 @@ Panel {
 
     function extract(url: string): string {
       if (url) root.currentUrl = url
-      if (!Otoru.looksLikeUrl(root.currentUrl)) return "error: invalid URL"
+      if (root.normalizedUrl === "" && !root.isSearchQuery) return "error: invalid URL"
       root.openFromHotkey()
       root.startExtraction()
       return "extracting"
@@ -210,9 +446,13 @@ Panel {
     }
   }
 
-  function readClipboard() {
+  property bool _clipForced: false
+  function readClipboard(force) {
     if (clipProc.running) return
-    if (root.currentUrl !== "") return
+    // No currentUrl guard: auto-paste on open replaces whatever stale text
+    // the field held from a previous session — the fresh copy is what the
+    // user wants. isKnownUrl still filters the auto path (see clipProc).
+    root._clipForced = !!force
     clipProc.running = true
   }
 
@@ -222,22 +462,47 @@ Panel {
     stdout: StdioCollector {
       waitForEnd: true
       onStreamFinished: {
-        var text = String(this.text || "").trim()
-        if (Otoru.looksLikeUrl(text) && !root.isKnownUrl(text)) {
-          root.currentUrl = text
-          root.startExtraction()
-        }
+        var text = Otoru.cleanUrlText(String(this.text || ""))
+        if (text === "") return
+        if (!root._clipForced && root.isKnownUrl(text)) return
+        // Reopening the panel mid-flow with the same URL still in the
+        // clipboard must not re-extract and wipe the current card (e.g.
+        // while a download is running).
+        if (!root._clipForced && root.mediaInfo && text === root.extractedUrl) return
+        root.currentUrl = text
+        // Set after currentUrl so the onTextChanged handler (which clears it
+        // on real keystrokes) doesn't undo it — see urlField.
+        root.pastedFromClipboard = true
+        if (root.setting("autoExtractClipboard", true)) root.startExtraction()
       }
     }
   }
 
   property string currentUrl: ""
   onCurrentUrlChanged: root.useWebClient = false
+  // The exact URL the current mediaInfo was extracted for — when the field
+  // text diverges from it, the stale media card is dropped (see urlField).
+  property string extractedUrl: ""
+  property bool pastedFromClipboard: false
+  readonly property string normalizedUrl: Otoru.cleanUrlText(root.currentUrl)
+  readonly property bool isSearchQuery: Otoru.isSearchQuery(root.currentUrl)
   property var mediaInfo: null
+  property string _fallbackThumb: ""
+  onMediaInfoChanged: root._fallbackThumb = ""
   property bool useWebClient: false
+  // Extraction failures worth promoting to the download card — these are the
+  // ones the "Retry as web client" button can actually fix.
+  readonly property string retryableErrorPattern: "403|forbidden|access denied|sign in|authentication|auth required|authenticate|unable to download|blocked|geo|bot"
   readonly property bool canRetryAsWebClient: root.activeStatus === "error" && !root.useWebClient &&
-    /403|forbidden|access denied|sign in|authentication|auth required|authenticate|unable to download|blocked|geo|bot/i.test(root.activeError || root.errorMessage || "")
+    new RegExp(root.retryableErrorPattern, "i").test(root.activeError || root.errorMessage || "")
   property bool extracting: false
+  readonly property bool downloadInProgress: root.activeStatus === "downloading" || root.activeStatus === "preparing" || root.activeStatus === "paused"
+  // True while the card shown is the downloading job's own card (nothing to
+  // queue); a fresh extraction of another source makes it false → Queue shows.
+  readonly property bool showingDownloadedCard: root.downloadInProgress && root.activeJob && root.mediaInfo
+    && root.mediaInfo.webpage_url === root.activeJob.url
+
+  property var activeInfoProc: null
   property string errorMessage: ""
   property string rawLog: ""
   property bool showRawLog: false
@@ -258,6 +523,7 @@ Panel {
     next.push(u)
     if (next.length > 50) next = next.slice(-50)
     root.history = next
+    if (root.setting("saveHistory", true)) root.setSetting("history", next)
   }
 
   function isKnownUrl(url) {
@@ -265,42 +531,70 @@ Panel {
   }
 
   function startExtraction() {
-    var url = String(root.currentUrl).trim()
-    if (!Otoru.looksLikeUrl(url)) {
-      root.errorMessage = "Invalid URL."
+    var raw = String(root.currentUrl).trim()
+    var url = Otoru.cleanUrlText(raw)
+    if (url === "" && Otoru.isSearchQuery(raw)) url = "ytsearch1:" + raw
+    if (url === "") {
+      root.errorMessage = "Enter a URL or search query."
       return
     }
+    root.extractedUrl = url
     root.extracting = true
     root.mediaInfo = null
     root.errorMessage = ""
-    root.activeStatus = ""
-    root.activeError = ""
+    // Deliberately do NOT clear activeStatus/activeError here: an in-progress
+    // download card stays until the user clears it (Clear button / clear IPC).
     root.rawLog = ""
-    root.downloadMode = "best"
+    root.downloadMode = "video"
     root.videoQuality = "best"
     root.audioFormat = String(root.setting("audioFormat", "best") || "best")
-    infoProc.command = Otoru.infoCommand(url, root.setting("proxy", ""), root.useWebClient, root.settings, root.home)
-    infoProc.running = true
+    root.audioLanguage = ""
+
+    // Fresh Process per extraction: reusing one races its late finished
+    // signals against the next run's StdioCollector (stale/partial output).
+    if (root.activeInfoProc) { root.activeInfoProc.destroy(); root.activeInfoProc = null }
+    var proc = infoProcFactory.createObject(root)
+    root.activeInfoProc = proc
+    proc.command = Otoru.infoCommand(url, root.setting("proxy", ""), root.useWebClient, root.settings, root.home)
+    proc.running = true
   }
 
-  Process {
-    id: infoProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var raw = String(this.text || "").trim()
-        root.handleInfo(raw)
+  Component {
+    id: infoProcFactory
+    Process {
+      id: infoProc
+      stdout: StdioCollector {
+        waitForEnd: true
+        onStreamFinished: {
+          // Stale proc (superseded by a newer extraction): its output would
+          // clobber the fresh card, drop it.
+          if (root.activeInfoProc !== infoProc) return
+          var raw = String(this.text || "").trim()
+          root.handleInfo(raw)
+        }
       }
-    }
-    stderr: SplitParser {
-      onRead: function(data) { root.rawLog += data + "\n" }
-    }
-    onExited: function(exitCode, exitStatus) {
-      root.extracting = false
-      if (exitCode !== 0 || exitStatus !== 0) {
-        root.activeStatus = "error"
-        root.activeError = Otoru.friendlyError(root.rawLog, exitCode, exitStatus)
-        root.errorMessage = root.activeError
+      stderr: SplitParser {
+        onRead: function(data) {
+          if (root.activeInfoProc === infoProc) root.rawLog += data + "\n"
+        }
+      }
+      onExited: function(exitCode, exitStatus) {
+        if (root.activeInfoProc !== infoProc) return
+        root.activeInfoProc = null
+        root.extracting = false
+        if (exitCode !== 0 || exitStatus !== 0) {
+          var err = Otoru.friendlyError(root.rawLog, exitCode, exitStatus)
+          root.errorMessage = err
+          // Extraction failures are explained by the banner above; only
+          // promote to the download card when "Retry as web client" applies
+          // (and never clobber an in-progress download card).
+          if (root.activeStatus !== "downloading" && root.activeStatus !== "preparing"
+              && new RegExp(root.retryableErrorPattern, "i").test(err)) {
+            root.activeStatus = "error"
+            root.activeError = err
+          }
+        }
+        this.destroy()
       }
     }
   }
@@ -313,13 +607,47 @@ Panel {
     }
     root.mediaInfo = info
     root.availableQualities = Otoru.availableVideoQualities(info.maxHeight)
-    if (!info.hasAudio && root.downloadMode === "audio") root.downloadMode = "best"
+    if (!info.hasAudio && root.downloadMode === "audio") root.downloadMode = "video"
     if (root.availableQualities.indexOf(root.videoQuality) < 0) root.videoQuality = "best"
+    // Some sites (x.com amplify videos) omit the thumbnail from the yt-dlp
+    // dump — scrape the page's og:image as a fallback so the card isn't blank.
+    if (info.thumbnail === "" && info.webpage_url) root.scrapeThumbnail(info.webpage_url)
   }
 
-  property string downloadMode: "best"
+  property string _thumbScrapeUrl: ""
+  function scrapeThumbnail(url) {
+    if (!url) return
+    root._thumbScrapeUrl = String(url)
+    if (thumbScrapeProc.running) thumbScrapeProc.running = false // restart for a new URL
+    thumbScrapeProc.command = ["curl", "-sL", "--max-time", "15",
+      "-A", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+      String(url)]
+    thumbScrapeProc.running = true
+  }
+
+  Process {
+    id: thumbScrapeProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var html = String(this.text || "")
+        var m = /(?:og:image|og:image:secure_url)"\s+content="([^"]+)"/i.exec(html)
+        if (!m) return
+        var thumb = m[1].replace(/&amp;/g, "&") // HTML entities in the meta tag
+        // Vimeo og:image defaults to webp; Qt has no webp plugin — ask for jpg.
+        if (/vimeocdn\.com/.test(thumb)) thumb = thumb.replace(/([?&])f=webp/, "$1f=jpg")
+        // Only apply to the media card the scrape was started for.
+        if (!root.mediaInfo || root.mediaInfo.webpage_url !== root._thumbScrapeUrl) return
+        if (root._fallbackThumb !== "") return
+        root._fallbackThumb = thumb
+      }
+    }
+  }
+
+  property string downloadMode: "video"
   property string videoQuality: "best"
   property string audioFormat: "best"
+  property string audioLanguage: ""
   property var availableQualities: []
 
   ListModel { id: queueModel }
@@ -335,14 +663,21 @@ Panel {
   property string activeError: ""
   property string activeOutputPath: ""
   property string activeOutputDir: ""
+  property bool pauseRequested: false
+  property real jobStartedAt: 0
 
   function makeJob() {
     return {
-      url: String(root.currentUrl).trim(),
+      // Prefer the resolved page URL (a search result downloads the video,
+      // not a re-search); fall back to the normalized field text.
+      url: root.mediaInfo && root.mediaInfo.webpage_url
+        ? String(root.mediaInfo.webpage_url)
+        : Otoru.cleanUrlText(root.currentUrl),
       title: root.mediaInfo ? root.mediaInfo.title : "",
       mode: root.downloadMode,
       quality: root.videoQuality,
       audioFormat: root.audioFormat,
+      audioLanguage: root.audioLanguage,
       info: root.mediaInfo
     }
   }
@@ -352,7 +687,7 @@ Panel {
       root.errorMessage = "Enter a URL first."
       return
     }
-    if (root.activeStatus === "downloading") {
+    if (root.activeStatus === "downloading" || root.activeStatus === "paused") {
       queueModel.append(root.makeJob())
       root.resetInput()
       return
@@ -378,6 +713,7 @@ Panel {
     root.activeError = ""
     root.activeOutputPath = ""
     root.activeOutputDir = ""
+    root.pauseRequested = false
     mkdirProc.command = Otoru.mkdirCommand(root.setting("downloadDir", ""), root.home)
     mkdirProc.running = true
   }
@@ -399,6 +735,7 @@ Panel {
     if (!root.activeJob) return
     downloadProc.command = Otoru.buildDownloadArgs(root.activeJob, root.settings, root.home, root.useWebClient)
     downloadProc.running = true
+    root.jobStartedAt = Date.now() / 1000
     root.activeStatus = "downloading"
   }
 
@@ -427,6 +764,14 @@ Panel {
     var job = root.activeJob
     if (!job) return
 
+    // Pause: keep job + .part files so resume continues where we left off.
+    if (root.pauseRequested && exitStatus !== 0) {
+      root.pauseRequested = false
+      root.activeStatus = "paused"
+      return
+    }
+    root.pauseRequested = false
+
     if (exitCode !== 0 || exitStatus !== 0) {
       if (exitStatus !== 0) {
         root.activeStatus = "cancelled"
@@ -445,7 +790,20 @@ Panel {
       root.activeProgressSpeed = ""
       root.activeProgressEta = ""
       root.rememberUrl(job.url)
+      var action = root.setting("postDownloadAction", "nothing")
+      if (action === "copy" && root.activeOutputPath !== "") {
+        copyPathProc.command = ["sh", "-c", "printf %s \"$1\" | wl-copy", "otoru-copy", root.activeOutputPath]
+        copyPathProc.running = true
+      } else if (action === "open" && root.activeOutputDir !== "") {
+        root.openFolder(root.activeOutputDir)
+      } else if (action === "openFile") {
+        resolveProc.command = Otoru.resolveNewestCommand(root.activeOutputDir, root.jobStartedAt)
+        resolveProc.running = true
+      }
       root.notifyComplete()
+      // Only clear while the panel is visible — a download finishing in the
+      // background shouldn't wipe the extracted card before it's been seen.
+      if (root.opened && root.setting("clearInputAfterDownload", true)) root.resetInput()
     }
 
     root.activeJob = null
@@ -453,7 +811,7 @@ Panel {
   }
 
   function processQueue() {
-    if (root.activeStatus === "downloading" || queueModel.count === 0) return
+    if (root.activeStatus === "downloading" || root.activeStatus === "paused" || queueModel.count === 0) return
     var queued = queueModel.get(0)
     var job = {
       url: queued.url,
@@ -461,6 +819,7 @@ Panel {
       mode: queued.mode,
       quality: queued.quality,
       audioFormat: queued.audioFormat,
+      audioLanguage: queued.audioLanguage,
       info: queued.info
     }
     queueModel.remove(0)
@@ -471,17 +830,34 @@ Panel {
     if (downloadProc.running) downloadProc.running = false
   }
 
+  function pauseActive() {
+    root.pauseRequested = true
+    if (downloadProc.running) downloadProc.running = false
+  }
+
+  function resumeActive() {
+    if (root.activeJob) root.startJob(root.activeJob)
+  }
+
   function removeQueued(index) {
     if (index >= 0 && index < queueModel.count) queueModel.remove(index)
+  }
+
+  function useHistory(url) {
+    root.currentUrl = String(url)
+    if (urlField) urlField.text = String(url)
+    root.startExtraction()
   }
 
   function resetInput() {
     root.currentUrl = ""
     if (urlField) urlField.text = ""
+    root.extractedUrl = ""
     root.mediaInfo = null
-    root.downloadMode = "best"
+    root.downloadMode = "video"
     root.videoQuality = "best"
     root.audioFormat = String(root.setting("audioFormat", "best") || "best")
+    root.audioLanguage = ""
     root.errorMessage = ""
     Qt.callLater(function() { if (urlField) urlField.forceActiveFocus() })
   }
@@ -489,6 +865,7 @@ Panel {
   function clearActive() {
     root.activeStatus = ""
     root.activeTitle = ""
+    root.activeJob = null
     root.activeProgressPercent = ""
     root.activeProgressPercentValue = 0
     root.activeProgressSize = ""
@@ -504,7 +881,7 @@ Panel {
     root.errorMessage = ""
     root.activeError = ""
     if (root.mediaInfo) root.startDownload()
-    else if (Otoru.looksLikeUrl(root.currentUrl)) root.startExtraction()
+    else root.startExtraction() // validates internally (URL or search query)
   }
 
   function openFolder(path) {
@@ -512,7 +889,13 @@ Panel {
     Quickshell.execDetached(["uwsm-app", "--", "nautilus", "--new-window", path])
   }
 
+  function openFile(path) {
+    if (!path) return
+    Quickshell.execDetached(["uwsm-app", "--", "xdg-open", path])
+  }
+
   function notifyComplete() {
+    if (root.opened) return // status is visible in the panel; don't overlap it
     var title = root.activeTitle || "Download complete"
     var body = "Saved to " + root.setting("downloadDir", "")
     var folder = Otoru.expandHome(root.setting("downloadDir", ""), root.home)
@@ -521,6 +904,7 @@ Panel {
   }
 
   function notifyError() {
+    if (root.opened) return // status is visible in the panel; don't overlap it
     var title = root.activeTitle || "Download failed"
     var body = String(root.activeError || root.errorMessage || "Unknown error")
     notifyProc.command = ["/usr/share/omarchy/bin/omarchy-notification-send", "-a", "otoru", "-i", "dialog-error", "-u", "normal", title, body]
@@ -528,18 +912,77 @@ Panel {
   }
 
   Process { id: notifyProc }
+  Process { id: copyPathProc }
+  Process {
+    id: resolveProc
+    stdout: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var p = String(this.text || "").trim().split("\n")[0]
+        if (p !== "") root.openFile(p)
+        else if (root.activeOutputDir !== "") root.openFolder(root.activeOutputDir)
+      }
+    }
+  }
 
   function modeButtonLabel(mode) {
-    if (mode === "best") return "Best Quality"
     if (mode === "video") return "Video"
     if (mode === "audio") return "Audio"
     if (mode === "custom") return "Custom"
     return mode
   }
 
-  function percentValue(text) {
-    var n = parseFloat(String(text).replace("%", ""))
-    return isNaN(n) ? 0 : Math.max(0, Math.min(100, n))
+  // Informative row value, e.g. "Best · 1080p", "Audio · MP3".
+  function modeValueText() {
+    var q = root.mediaInfo && root.mediaInfo.maxHeight > 0 ? root.mediaInfo.maxHeight + "p" : ""
+    if (root.downloadMode === "video") {
+      if (root.videoQuality !== "best") return "Video · " + root.videoQuality + "p"
+      return q ? "Video · Best (" + q + ")" : "Video"
+    }
+    if (root.downloadMode === "audio")
+      return "Audio · " + (root.audioFormat === "best" ? "Best" : root.audioFormat.toUpperCase())
+    return "Custom"
+  }
+
+  function sponsorCategories() {
+    var c = root.setting("sponsorBlockCategories", null)
+    return Array.isArray(c) ? c : []
+  }
+
+  function toggleSponsorCategory(cat) {
+    var cur = root.sponsorCategories().slice()
+    var i = cur.indexOf(cat)
+    if (i >= 0) cur.splice(i, 1)
+    else cur.push(cat)
+    root.setSetting("sponsorBlockCategories", cur)
+  }
+
+  function sponsorCategoryLabel(cat) {
+    var names = {
+      sponsor: "Sponsor",
+      selfpromo: "Self-promo",
+      interaction: "Interaction",
+      intro: "Intro",
+      outro: "Outro",
+      preview: "Preview",
+      filler: "Filler",
+      music_offtopic: "Non-music"
+    }
+    return names[cat] || cat
+  }
+
+  function audioTrackOptions() {
+    var opts = [{ value: "", label: "Original" }]
+    var langs = root.mediaInfo ? root.mediaInfo.audioLanguages : []
+    for (var i = 0; i < langs.length; i++) opts.push({ value: langs[i], label: langs[i] })
+    return opts
+  }
+
+  function qualityButtonLabel(q) {
+    var base = q === "best" ? "Best" : q + "p"
+    var h = q === "best" ? (root.mediaInfo ? root.mediaInfo.maxHeight : 0) : Number(q)
+    var s = Otoru.formatSize(Otoru.estimateQualitySize(root.mediaInfo, h))
+    return s ? base + "  ·  " + s : base
   }
 
   function anyFieldFocused() {
@@ -547,6 +990,7 @@ Panel {
            downloadDirField.activeFocus ||
            outputTemplateField.activeFocus ||
            cookiesField.activeFocus ||
+           cookiesProfileField.activeFocus ||
            proxyField.activeFocus ||
            rateLimitField.activeFocus ||
            concurrentFragmentsField.activeFocus ||
@@ -586,37 +1030,37 @@ Panel {
       boundsBehavior: Flickable.StopAtBounds
       interactive: contentHeight > height
 
-      Column {
+        Column {
         id: contentColumn
         width: scroller.width
-        spacing: Style.space(12)
-
-        Text {
-          width: parent.width
-          text: "OTORU"
-          color: Qt.darker(root.contentForeground, 1.4)
-          font.family: root.contentFontFamily
-          font.pixelSize: Style.font.caption
-          font.bold: true
-          horizontalAlignment: Text.AlignHCenter
-        }
+        spacing: Style.spacing.xxl
 
         BorderSurface {
           visible: root.errorMessage !== ""
           width: parent.width
-          height: errorColumn.implicitHeight + Style.space(16)
+          height: errorColumn.implicitHeight + Style.spacing.huge
           radius: Style.cornerRadius
           color: Util.alpha(Color.urgent, 0.12)
           borderSpec: Border.controlSpec("normal", Color.urgent, Color.urgent)
+
+          PanelActionButton {
+            iconText: "\u2715"
+            foreground: Color.urgent
+            fontFamily: root.contentFontFamily
+            anchors.top: parent.top
+            anchors.right: parent.right
+            anchors.margins: Style.spacing.md
+            onClicked: root.errorMessage = ""
+          }
 
           Column {
             id: errorColumn
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: Style.space(12)
-            anchors.rightMargin: Style.space(12)
-            spacing: Style.space(6)
+            anchors.leftMargin: Style.spacing.xxl
+            anchors.rightMargin: Style.spacing.xxl
+            spacing: Style.spacing.md
 
             Text {
               width: parent.width
@@ -626,57 +1070,108 @@ Panel {
               font.pixelSize: Style.font.body
               wrapMode: Text.WordWrap
             }
+          }
+        }
 
-            Button {
-              visible: root.rawLog !== ""
-              text: root.showRawLog ? "Hide raw log" : "View raw log"
-              fontSize: Style.font.bodySmall
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.showRawLog = !root.showRawLog
+        Item {
+          width: parent.width
+          height: urlField.height
+
+          TextField {
+            id: urlField
+            width: parent.width
+            placeholderText: "Paste a URL or search…"
+            text: root.currentUrl
+            activeFocusOnTab: false
+            foreground: root.contentForeground
+            font.family: root.contentFontFamily
+            // Room for the paste/clear glyph buttons inside the field.
+            rightPadding: Style.spacing.controlPaddingX + Style.space(64)
+            onTextChanged: {
+              root.currentUrl = text
+              root.pastedFromClipboard = false
+              // Drop the stale media card as soon as the text diverges from
+              // what it was extracted for.
+              if (root.mediaInfo && Otoru.cleanUrlText(text) !== root.extractedUrl) {
+                root.mediaInfo = null
+                root._fallbackThumb = ""
+              }
+            }
+            onAccepted: {
+              // Context-aware Enter: download when a result is ready,
+              // extract otherwise (the README's two-Enter flow).
+              if (root.mediaInfo && root.activeStatus !== "downloading") root.startDownload()
+              else root.startExtraction()
+            }
+
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                root.close()
+                event.accepted = true
+                return
+              }
+              // Modifier combos work even mid-typing — the field swallows
+              // plain letters, so these carry the keyboard-first shortcuts.
+              if (!(event.modifiers & Qt.ControlModifier)) return
+              switch (event.key) {
+              case Qt.Key_Backspace:
+                // Force-clear the input (card + field); keep focus for the next URL.
+                root.resetInput()
+                event.accepted = true
+                break
+              case Qt.Key_1: root.downloadMode = "video"; event.accepted = true; break
+              case Qt.Key_2: root.downloadMode = "audio"; event.accepted = true; break
+              case Qt.Key_3: root.downloadMode = "custom"; event.accepted = true; break
+              case Qt.Key_R:
+                if (root.canRetryAsWebClient) { root.retryWithWebClient(); event.accepted = true }
+                break
+              case Qt.Key_P:
+                if (root.activeStatus === "paused") { root.resumeActive(); event.accepted = true }
+                else if (root.activeStatus === "downloading") { root.pauseActive(); event.accepted = true }
+                break
+              }
+            }
+          }
+
+          Row {
+            anchors.right: parent.right
+            anchors.rightMargin: Style.spacing.sm
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.spacing.xs
+
+            InputGlyphButton {
+              glyph: "\uf0ea"
+              fg: root.contentForeground
+              fam: root.contentFontFamily
+              onClicked: root.readClipboard(true)
+            }
+            InputGlyphButton {
+              visible: root.currentUrl.trim() !== ""
+              glyph: "\u2715"
+              fg: root.contentForeground
+              fam: root.contentFontFamily
+              onClicked: root.resetInput()
             }
           }
         }
 
-        BorderSurface {
-          visible: root.showRawLog && root.rawLog !== ""
+        // Live state hint: what Enter will do, or why the input is bad.
+        Text {
+          id: inputHint
+          visible: !root.extracting && root.activeStatus !== "downloading" && root.activeStatus !== "preparing"
           width: parent.width
-          height: Math.min(Style.space(160), rawLogText.implicitHeight + Style.space(16))
-          radius: Style.cornerRadius
-          color: Style.controlFill(false, false, root.contentForeground, Color.accent)
-          borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
-          clip: true
-
-          Text {
-            id: rawLogText
-            anchors.fill: parent
-            anchors.margins: Style.space(8)
-            text: root.rawLog
-            color: root.contentForeground
-            font.family: "monospace"
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WrapAnywhere
-            elide: Text.ElideNone
-          }
-        }
-
-        TextField {
-          id: urlField
-          width: parent.width
-          placeholderText: "Paste a media URL…"
-          text: root.currentUrl
-          activeFocusOnTab: false
-          foreground: root.contentForeground
+          wrapMode: Text.WordWrap
+          color: root.currentUrl.trim() !== "" && root.normalizedUrl === "" && !root.isSearchQuery
+              ? Color.urgent
+              : root.currentUrl.trim() === "" ? Qt.darker(root.contentForeground, 1.5) : Color.accent
+          text: root.currentUrl.trim() === "" ? "Paste a URL or search YouTube — press Enter"
+              : root.normalizedUrl === "" && !root.isSearchQuery ? "Not a URL — paste the link or search"
+              : root.mediaInfo ? "Press Enter to download"
+              : root.pastedFromClipboard ? "Pasted from clipboard — press Enter to extract"
+              : root.isSearchQuery ? "Press Enter to search YouTube"
+              : "Press Enter to extract"
           font.family: root.contentFontFamily
-          onTextChanged: root.currentUrl = text
-          onAccepted: root.startExtraction()
-
-          Keys.onPressed: function(event) {
-            if (event.key === Qt.Key_Escape) {
-              root.close()
-              event.accepted = true
-            }
-          }
+          font.pixelSize: Style.font.bodySmall
         }
 
         Text {
@@ -696,43 +1191,80 @@ Panel {
           }
         }
 
+        // Context header: thumbnail + overlaid duration badge, title, channel.
         BorderSurface {
           visible: root.mediaInfo !== null
           width: parent.width
-          height: metadataRow.implicitHeight + Style.space(16)
+          height: headerRow.implicitHeight + Style.spacing.huge
           radius: Style.cornerRadius
           color: Style.controlFill(false, false, root.contentForeground, Color.accent)
           borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
 
           Row {
-            id: metadataRow
+            id: headerRow
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: Style.space(12)
-            anchors.rightMargin: Style.space(12)
-            spacing: Style.space(12)
+            anchors.leftMargin: Style.spacing.xxl
+            anchors.rightMargin: Style.spacing.xxl
+            spacing: Style.spacing.xxl
 
-            BorderSurface {
-              visible: root.mediaInfo && root.mediaInfo.thumbnail !== ""
+            Item {
               width: Style.space(96)
               height: Style.space(72)
-              radius: Style.cornerRadius
-              color: Style.controlFill(false, false, root.contentForeground, Color.accent)
-              borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
-              clip: true
+              anchors.verticalCenter: parent.verticalCenter
 
-              Image {
+              BorderSurface {
                 anchors.fill: parent
-                source: root.mediaInfo ? root.mediaInfo.thumbnail : ""
-                fillMode: Image.PreserveAspectCrop
-                asynchronous: true
+                radius: Style.cornerRadius
+                color: Style.controlFill(false, false, root.contentForeground, Color.accent)
+                borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
+                clip: true
+                visible: root.mediaInfo && (root.mediaInfo.thumbnail !== "" || root._fallbackThumb !== "")
+
+                Image {
+                  anchors.fill: parent
+                  source: root._fallbackThumb !== "" ? root._fallbackThumb : (root.mediaInfo ? root.mediaInfo.thumbnail : "")
+                  fillMode: Image.PreserveAspectCrop
+                  asynchronous: true
+
+                  // ponytail: yt-dlp lists maxres/sd sizes that 404 on old videos;
+                  // fall back to hqdefault. `_fallbackThumb` is a plain property —
+                  // assigning it keeps the `source` binding alive (an imperative
+                  // source= would kill it and freeze the image on the old video).
+                  onStatusChanged: {
+                    if (status === Image.Error && root._fallbackThumb === "") {
+                      var m = /i\.ytimg\.com\/vi\/([A-Za-z0-9_-]+)\//.exec(root.mediaInfo ? root.mediaInfo.thumbnail : "")
+                      if (m) root._fallbackThumb = "https://i.ytimg.com/vi/" + m[1] + "/hqdefault.jpg"
+                    }
+                  }
+                }
+              }
+
+              Rectangle {
+                visible: root.mediaInfo && root.mediaInfo.duration > 0
+                anchors.right: parent.right
+                anchors.bottom: parent.bottom
+                anchors.margins: Style.spacing.sm
+                width: durationBadgeText.implicitWidth + Style.spacing.xl
+                height: durationBadgeText.implicitHeight + Style.spacing.sm
+                radius: height / 2
+                color: Qt.rgba(0, 0, 0, 0.65)
+
+                Text {
+                  id: durationBadgeText
+                  anchors.centerIn: parent
+                  text: Otoru.formatDuration(root.mediaInfo ? root.mediaInfo.duration : 0)
+                  color: "white"
+                  font.family: "monospace"
+                  font.pixelSize: Style.font.caption
+                }
               }
             }
 
             Column {
-              width: parent.width - (thumbnailPlaceholder.visible ? Style.space(96) + Style.space(12) : 0)
-              spacing: Style.space(4)
+              width: parent.width - Style.space(96) - Style.spacing.xxl
+              spacing: Style.spacing.sm
               anchors.verticalCenter: parent.verticalCenter
 
               Text {
@@ -742,6 +1274,8 @@ Panel {
                 font.family: root.contentFontFamily
                 font.pixelSize: Style.font.body
                 font.bold: true
+                wrapMode: Text.Wrap
+                maximumLineCount: 2
                 elide: Text.ElideRight
               }
 
@@ -754,38 +1288,40 @@ Panel {
                 font.pixelSize: Style.font.bodySmall
                 elide: Text.ElideRight
               }
-
-              Text {
-                visible: root.mediaInfo && root.mediaInfo.duration > 0
-                text: root.mediaInfo ? Otoru.formatDuration(root.mediaInfo.duration) : ""
-                color: Qt.darker(root.contentForeground, 1.5)
-                font.family: root.contentFontFamily
-                font.pixelSize: Style.font.bodySmall
-              }
             }
-
-            Item { id: thumbnailPlaceholder; visible: !root.mediaInfo || root.mediaInfo.thumbnail === ""; width: 0; height: 0 }
           }
         }
 
+        // Option list — one row template, N instances. Tight spacing: rows
+        // carry their own padding, so they only need a hair of air between.
         Column {
-          visible: root.mediaInfo !== null
           width: parent.width
-          spacing: Style.space(8)
+          spacing: Style.spacing.sm
 
-          Text {
-            text: "Mode"
-            color: Qt.darker(root.contentForeground, 1.5)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.bold: true
-          }
+        OptionRow {
+          // Playlist summary replaces mode/quality selection entirely.
+          visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist === true
+          glyph: "\udb83\uddc2"
+          label: "Playlist"
+          valueText: (root.mediaInfo ? String(root.mediaInfo.count) : "") + " items"
+          chevron: false
+          fg: root.contentForeground
+          fam: root.contentFontFamily
+        }
+
+        OptionRow {
+          visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist !== true
+          glyph: "\uf03d"
+          label: "Mode"
+          valueText: root.modeValueText()
+          fg: root.contentForeground
+          fam: root.contentFontFamily
 
           Row {
-            spacing: Style.space(6)
+            spacing: Style.spacing.md
 
             Repeater {
-              model: ["best", "video", "audio", "custom"]
+              model: ["video", "audio", "custom"]
 
               Button {
                 required property string modelData
@@ -799,50 +1335,101 @@ Panel {
             }
           }
 
-          Row {
+          // Quality (best & video modes) — sized resolution buttons.
+          Column {
             visible: root.downloadMode === "video" && root.availableQualities.length > 0
-            spacing: Style.space(6)
+            width: parent.width
+            spacing: Style.spacing.sm
 
-            Button {
-              text: "Best"
-              selected: root.videoQuality === "best"
-              fontSize: Style.font.bodySmall
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.videoQuality = "best"
+            Text {
+              text: "QUALITY"
+              color: Qt.darker(root.contentForeground, 1.5)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1
             }
 
-            Repeater {
-              model: root.availableQualities
+            Flow {
+              width: parent.width
+              spacing: Style.spacing.md
 
               Button {
-                required property string modelData
-                text: modelData + "p"
-                selected: root.videoQuality === modelData
+                text: root.qualityButtonLabel("best")
+                selected: root.videoQuality === "best"
                 fontSize: Style.font.bodySmall
                 foreground: root.contentForeground
                 fontFamily: root.contentFontFamily
-                onClicked: root.videoQuality = modelData
+                onClicked: root.videoQuality = "best"
+              }
+
+              Repeater {
+                model: root.availableQualities
+
+                Button {
+                  required property string modelData
+                  text: root.qualityButtonLabel(modelData)
+                  selected: root.videoQuality === modelData
+                  fontSize: Style.font.bodySmall
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.videoQuality = modelData
+                }
               }
             }
           }
 
-          Row {
+          // Audio format + track (audio mode).
+          Column {
             visible: root.downloadMode === "audio"
-            spacing: Style.space(6)
+            width: parent.width
+            spacing: Style.spacing.sm
 
-            Repeater {
-              model: ["best", "mp3", "opus", "m4a"]
+            Text {
+              text: "AUDIO FORMAT"
+              color: Qt.darker(root.contentForeground, 1.5)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1
+            }
 
-              Button {
-                required property string modelData
-                text: modelData === "best" ? "Best" : modelData.toUpperCase()
-                selected: root.audioFormat === modelData
-                fontSize: Style.font.bodySmall
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.audioFormat = modelData
+            Row {
+              spacing: Style.spacing.md
+
+              Repeater {
+                model: ["best", "mp3", "opus", "m4a"]
+
+                Button {
+                  required property string modelData
+                  text: modelData === "best" ? "Best" : modelData.toUpperCase()
+                  selected: root.audioFormat === modelData
+                  fontSize: Style.font.bodySmall
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.audioFormat = modelData
+                }
               }
+            }
+
+            Text {
+              visible: root.mediaInfo && root.mediaInfo.audioLanguages.length > 0
+              text: "TRACK"
+              color: Qt.darker(root.contentForeground, 1.5)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1
+            }
+
+            SearchableDropdown {
+              visible: root.mediaInfo && root.mediaInfo.audioLanguages.length > 0
+              width: parent.width
+              label: "Original"
+              foreground: root.contentForeground
+              background: root.bar ? root.bar.background : Color.background
+              popupBorder: root.contentForeground
+              fontFamily: root.contentFontFamily
+              value: root.audioLanguage
+              options: root.audioTrackOptions()
+              onChanged: function(value) { root.audioLanguage = value }
             }
           }
 
@@ -864,58 +1451,357 @@ Panel {
           }
         }
 
-        Column {
-          width: parent.width
-          spacing: Style.space(4)
+        OptionRow {
+          visible: root.mediaInfo !== null && (root.mediaInfo.hasSubs || root.mediaInfo.hasAutoSubs)
+          glyph: "\udb80\udd5e"
+          label: "Subtitles"
+          valueText: [root.setting("embedSubs", false) ? "Embed" : "",
+                      root.setting("includeAutoSubs", false) ? "Auto" : ""].filter(Boolean).join(" · ") || "Off"
+          fg: root.contentForeground
+          fam: root.contentFontFamily
 
-          Text {
-            text: "Save to"
-            color: Qt.darker(root.contentForeground, 1.5)
-            font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
-            font.bold: true
+          Toggle {
+            width: parent.width
+            label: "Embed subtitles into video"
+            checked: root.setting("embedSubs", false)
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+            onClicked: root.setSetting("embedSubs", !root.setting("embedSubs", false))
           }
 
-          TextField {
-            id: downloadDirField
+          Toggle {
             width: parent.width
-            text: root.setting("downloadDir", "")
-            placeholderText: "~/Downloads"
-            activeFocusOnTab: false
-            onEditingFinished: root.setSetting("downloadDir", text)
+            visible: root.mediaInfo && root.mediaInfo.hasAutoSubs
+            label: "Include auto-generated captions"
+            checked: root.setting("includeAutoSubs", false)
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+            onClicked: root.setSetting("includeAutoSubs", !root.setting("includeAutoSubs", false))
+          }
 
-            Keys.onPressed: function(event) {
-              if (event.key === Qt.Key_Escape) {
-                keyCatcher.forceActiveFocus()
-                event.accepted = true
+          SearchableDropdown {
+            width: parent.width
+            label: "Subtitle language"
+            foreground: root.contentForeground
+            background: root.bar ? root.bar.background : Color.background
+            popupBorder: root.contentForeground
+            fontFamily: root.contentFontFamily
+            value: root.setting("subLanguage", "all")
+            options: [
+              { value: "all", label: "All" },
+              { value: "en", label: "English" },
+              { value: "ja", label: "Japanese" },
+              { value: "ko", label: "Korean" },
+              { value: "zh", label: "Chinese" },
+              { value: "es", label: "Spanish" },
+              { value: "fr", label: "French" },
+              { value: "de", label: "German" },
+              { value: "pt", label: "Portuguese" },
+              { value: "it", label: "Italian" },
+              { value: "ru", label: "Russian" },
+              { value: "hi", label: "Hindi" },
+              { value: "ar", label: "Arabic" }
+            ]
+            onChanged: function(value) { root.setSetting("subLanguage", value) }
+          }
+        }
+
+        OptionRow {
+          visible: root.mediaInfo !== null
+          glyph: "\uf03e"
+          label: "Thumbnail"
+          valueText: [root.setting("downloadThumbnail", false) ? "Save" : "",
+                      root.setting("embedThumbnail", false) ? "Embed" : ""].filter(Boolean).join(" · ") || "Off"
+          fg: root.contentForeground
+          fam: root.contentFontFamily
+
+          Toggle {
+            width: parent.width
+            label: "Save thumbnail image"
+            description: "JPG saved next to the download"
+            checked: root.setting("downloadThumbnail", false)
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+            onClicked: root.setSetting("downloadThumbnail", !root.setting("downloadThumbnail", false))
+          }
+
+          Toggle {
+            width: parent.width
+            label: "Embed thumbnail into file metadata"
+            checked: root.setting("embedThumbnail", false)
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+            onClicked: root.setSetting("embedThumbnail", !root.setting("embedThumbnail", false))
+          }
+        }
+
+        OptionRow {
+          visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist !== true
+          glyph: "\udb83\udea2"
+          label: "Prefer DRC audio"
+          chevron: false
+          fg: root.contentForeground
+          fam: root.contentFontFamily
+
+          trailing: ToggleSwitch {
+            checked: root.setting("preferDrc", false)
+            foreground: root.contentForeground
+            onToggled: root.setSetting("preferDrc", !root.setting("preferDrc", false))
+          }
+        }
+
+        // SponsorBlock — collapsible: master toggle + segment categories.
+        OptionRow {
+          visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist !== true
+          glyph: "\udb83\udea9"
+          label: "SponsorBlock"
+          valueText: root.setting("sponsorBlock", false)
+                     ? "On \u00b7 " + root.sponsorCategories().length + " types" : "Off"
+          fg: root.contentForeground
+          fam: root.contentFontFamily
+
+          Column {
+            width: parent.width
+            spacing: Style.spacing.lg
+
+            OptionRow {
+              glyph: "\udb83\udea9"
+              label: "Skip sponsor segments"
+              chevron: false
+              fg: root.contentForeground
+              fam: root.contentFontFamily
+
+              trailing: ToggleSwitch {
+                checked: root.setting("sponsorBlock", false)
+                foreground: root.contentForeground
+                onToggled: root.setSetting("sponsorBlock", !root.setting("sponsorBlock", false))
+              }
+            }
+
+            Text {
+              text: "SEGMENTS TO REMOVE"
+              color: Qt.darker(root.contentForeground, 1.5)
+              font.family: root.contentFontFamily
+              font.pixelSize: Style.font.caption
+              font.letterSpacing: 1
+            }
+
+            Flow {
+              width: parent.width
+              spacing: Style.spacing.md
+
+              Repeater {
+                model: ["sponsor", "selfpromo", "interaction", "intro", "outro", "preview", "filler", "music_offtopic"]
+
+                Button {
+                  required property string modelData
+                  text: root.sponsorCategoryLabel(modelData)
+                  selected: root.sponsorCategories().indexOf(modelData) >= 0
+                  fontSize: Style.font.bodySmall
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.toggleSponsorCategory(modelData)
+                }
               }
             }
           }
         }
 
-        Toggle {
-          width: parent.width
-          label: "Read URL from clipboard"
-          description: "Automatically paste a URL when opening otoru"
-          checked: root.setting("autoClipboard", false)
-          foreground: root.contentForeground
-          fontFamily: root.contentFontFamily
-          onClicked: root.setSetting("autoClipboard", !root.setting("autoClipboard", false))
+        OptionRow {
+          glyph: "\udb80\udcfa"
+          label: "After download"
+          valueText: [root.setting("postDownloadAction", "nothing") === "copy" ? "Copy path" : "",
+                      root.setting("postDownloadAction", "nothing") === "open" ? "Open folder" : "",
+                      root.setting("postDownloadAction", "nothing") === "openFile" ? "Open file" : ""].filter(Boolean).join("") || "Nothing"
+          fg: root.contentForeground
+          fam: root.contentFontFamily
+
+          Row {
+            spacing: Style.spacing.md
+
+            Repeater {
+              model: [
+                { value: "nothing", label: "Nothing" },
+                { value: "copy", label: "Copy path" },
+                { value: "open", label: "Open folder" },
+                { value: "openFile", label: "Open file" }
+              ]
+
+              Button {
+                required property var modelData
+                text: modelData.label
+                selected: root.setting("postDownloadAction", "nothing") === modelData.value
+                fontSize: Style.font.bodySmall
+                foreground: root.contentForeground
+                fontFamily: root.contentFontFamily
+                onClicked: root.setSetting("postDownloadAction", modelData.value)
+              }
+            }
+          }
         }
 
-        Button {
-          text: root.setting("advancedVisible", false) ? "Hide advanced" : "Advanced"
-          fontSize: Style.font.bodySmall
-          bordered: true
-          foreground: root.contentForeground
-          fontFamily: root.contentFontFamily
-          onClicked: root.setSetting("advancedVisible", !root.setting("advancedVisible", false))
+        OptionRow {
+          id: historyRow
+          property bool expanded: false
+
+          glyph: "\udb80\udd9d"
+          label: "History"
+          valueText: root.history.length > 0 ? root.history.length + " URLs" : ""
+          fg: root.contentForeground
+          fam: root.contentFontFamily
+          open: historyRow.expanded
+          onOpenChanged: historyRow.expanded = open
+
+          Column {
+            width: parent.width
+            spacing: Style.spacing.lg
+
+            OptionRow {
+              glyph: "\udb80\udd9d"
+              label: "Save download history"
+              chevron: false
+              fg: root.contentForeground
+              fam: root.contentFontFamily
+
+              trailing: ToggleSwitch {
+                checked: root.setting("saveHistory", true)
+                foreground: root.contentForeground
+                onToggled: {
+                  var wasOn = root.setting("saveHistory", true)
+                  root.setSetting("saveHistory", !wasOn)
+                  if (wasOn) {
+                    root.history = []
+                    root.setSetting("history", [])
+                  }
+                }
+              }
+            }
+
+            Button {
+              visible: root.history.length > 0
+              width: parent.width
+              text: "Clear history"
+              fontSize: Style.font.bodySmall
+              foreground: root.contentForeground
+              fontFamily: root.contentFontFamily
+              onClicked: {
+                root.history = []
+                root.setSetting("history", [])
+              }
+            }
+
+            Repeater {
+              model: root.history.slice().reverse().slice(0, 10)
+
+              Item {
+                required property string modelData
+                width: parent.width
+                height: histLabel.implicitHeight + Style.spacing.sm
+
+                Text {
+                  id: histLabel
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: modelData
+                  color: Qt.darker(root.contentForeground, 1.3)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  elide: Text.ElideMiddle
+                }
+
+                MouseArea {
+                  anchors.fill: parent
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.useHistory(modelData)
+                }
+              }
+            }
+          }
         }
 
-        Column {
-          visible: root.setting("advancedVisible", false)
-          width: parent.width
-          spacing: Style.space(10)
+        OptionRow {
+          id: advancedRow
+          glyph: "\udb81\udc93"
+          label: "Advanced"
+          fg: root.contentForeground
+          fam: root.contentFontFamily
+          open: root.setting("advancedVisible", false)
+          onOpenChanged: if (root.settingsLoaded) root.setSetting("advancedVisible", open)
+
+          Column {
+            width: parent.width
+            spacing: Style.spacing.xl
+
+          OptionRow {
+            glyph: "\uf120"
+            label: "Show raw log"
+            chevron: false
+            fg: root.contentForeground
+            fam: root.contentFontFamily
+
+            trailing: ToggleSwitch {
+              checked: root.showRawLog
+              foreground: root.contentForeground
+              onToggled: root.showRawLog = !root.showRawLog
+            }
+          }
+
+          OptionRow {
+            glyph: "\udb80\udd4d"
+            label: "Read URL from clipboard"
+            chevron: false
+            fg: root.contentForeground
+            fam: root.contentFontFamily
+
+            trailing: ToggleSwitch {
+              checked: root.setting("autoClipboard", true)
+              foreground: root.contentForeground
+              onToggled: root.setSetting("autoClipboard", !root.setting("autoClipboard", true))
+            }
+          }
+
+          OptionRow {
+            glyph: "\udb80\udd4d"
+            label: "Extract pasted URL automatically"
+            chevron: false
+            fg: root.contentForeground
+            fam: root.contentFontFamily
+
+            trailing: ToggleSwitch {
+              checked: root.setting("autoExtractClipboard", true)
+              foreground: root.contentForeground
+              onToggled: root.setSetting("autoExtractClipboard", !root.setting("autoExtractClipboard", true))
+            }
+          }
+
+          OptionRow {
+            glyph: "\u2715"
+            label: "Clear input after download"
+            chevron: false
+            fg: root.contentForeground
+            fam: root.contentFontFamily
+
+            trailing: ToggleSwitch {
+              checked: root.setting("clearInputAfterDownload", true)
+              foreground: root.contentForeground
+              onToggled: root.setSetting("clearInputAfterDownload", !root.setting("clearInputAfterDownload", true))
+            }
+          }
+
+          OptionRow {
+            glyph: "\udb80\udefe"
+            label: "Skip already-downloaded media"
+            chevron: false
+            fg: root.contentForeground
+            fam: root.contentFontFamily
+
+            trailing: ToggleSwitch {
+              checked: root.setting("useArchive", false)
+              foreground: root.contentForeground
+              onToggled: root.setSetting("useArchive", !root.setting("useArchive", false))
+            }
+          }
 
           TextField {
             id: outputTemplateField
@@ -991,7 +1877,7 @@ Panel {
           }
 
           Row {
-            spacing: Style.space(8)
+            spacing: Style.spacing.lg
             width: parent.width
 
             TextField {
@@ -1030,59 +1916,184 @@ Panel {
               if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
             }
           }
+          }
+        }
         }
 
         BorderSurface {
-          visible: root.activeStatus !== ""
+          visible: root.showRawLog && root.rawLog !== ""
           width: parent.width
-          height: activeColumn.implicitHeight + Style.space(20)
+          height: Math.min(Style.space(160), rawLogText.implicitHeight + Style.spacing.huge)
           radius: Style.cornerRadius
           color: Style.controlFill(false, false, root.contentForeground, Color.accent)
           borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
+          clip: true
+
+          Text {
+            id: rawLogText
+            anchors.fill: parent
+            anchors.margins: Style.spacing.lg
+            text: root.rawLog
+            color: root.contentForeground
+            font.family: "monospace"
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WrapAnywhere
+            elide: Text.ElideNone
+          }
+        }
+
+        BorderSurface {
+          id: activeCard
+          visible: root.activeStatus !== ""
+          width: parent.width
+          height: activeColumn.implicitHeight + Style.spacing.xl * 2
+          radius: Style.cornerRadius
+          color: Style.controlFill(false, false, root.contentForeground, Color.accent)
+          borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
+
+          // Network-plugin-style cycling caption while downloading.
+          property int phraseIndex: 0
+          readonly property var phrases: [
+            "Pulling streams",
+            "Muxing tracks",
+            "Stitching segments",
+            "Rewriting parts",
+            "Resolving formats",
+            "Demuxing audio"
+          ]
+          readonly property string phrase: phrases[phraseIndex % phrases.length]
 
           Column {
             id: activeColumn
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.verticalCenter: parent.verticalCenter
-            anchors.leftMargin: Style.space(12)
-            anchors.rightMargin: Style.space(12)
-            spacing: Style.space(10)
+            anchors.leftMargin: Style.spacing.xl
+            anchors.rightMargin: Style.spacing.xl
+            spacing: Style.spacing.md
 
-            Text {
+            Row {
               width: parent.width
-              text: root.activeStatus === "downloading" ? "Downloading" :
-                    root.activeStatus === "completed" ? "Finished" :
-                    root.activeStatus === "error" ? "Error" :
-                    root.activeStatus === "cancelled" ? "Cancelled" : "Preparing"
-              color: root.contentForeground
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.body
-              font.bold: true
+              spacing: Style.spacing.lg
+
+              Text {
+                id: activeHero
+                width: parent.width - activeActions.implicitWidth - parent.spacing
+                text: root.activeTitle !== "" ? root.activeTitle : "Transfer"
+                color: root.contentForeground
+                font.family: root.contentFontFamily
+                font.pixelSize: Style.font.body
+                font.bold: true
+                elide: Text.ElideRight
+                anchors.verticalCenter: parent.verticalCenter
+              }
+
+              Row {
+                id: activeActions
+                spacing: Style.spacing.xs
+
+                PanelActionButton {
+                  visible: root.canRetryAsWebClient
+                  iconText: "\uf01e"
+                  tooltipText: "Retry as web client"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.retryWithWebClient()
+                }
+
+                PanelActionButton {
+                  visible: root.activeStatus === "downloading"
+                  iconText: "\uf04c"
+                  tooltipText: "Pause"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.pauseActive()
+                }
+
+                PanelActionButton {
+                  visible: root.activeStatus === "paused"
+                  iconText: "\uf04b"
+                  tooltipText: "Resume"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.resumeActive()
+                }
+
+                PanelActionButton {
+                  visible: root.activeStatus === "downloading"
+                  iconText: "\uf04d"
+                  tooltipText: "Cancel"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.cancelActive()
+                }
+
+                PanelActionButton {
+                  visible: root.activeStatus === "completed" && root.activeOutputDir !== ""
+                  iconText: "\uf07c"
+                  tooltipText: "Open folder"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.openFolder(root.activeOutputDir)
+                }
+
+                PanelActionButton {
+                  visible: root.activeStatus !== "downloading"
+                  // ✕, not a trash glyph — Clear only dismisses the card.
+                  iconText: "\u2715"
+                  tooltipText: "Clear"
+                  foreground: root.contentForeground
+                  fontFamily: root.contentFontFamily
+                  onClicked: root.clearActive()
+                }
+              }
             }
 
+            // Cycling caption while downloading; the status word otherwise.
             Text {
-              visible: root.activeTitle !== ""
+              id: activeMeta
               width: parent.width
-              text: root.activeTitle
-              color: Qt.darker(root.contentForeground, 1.3)
+              text: root.activeStatus === "downloading" ? activeCard.phrase.toUpperCase() :
+                    root.activeStatus === "paused" ? "PAUSED" :
+                    root.activeStatus === "completed" ? "FINISHED" :
+                    root.activeStatus === "error" ? "ERROR" :
+                    root.activeStatus === "cancelled" ? "CANCELLED" : "PREPARING…"
+              color: Qt.darker(root.contentForeground, 1.5)
               font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: Style.font.caption
+              font.bold: true
+              font.letterSpacing: 1.2
               elide: Text.ElideRight
             }
 
+            Timer {
+              id: activePhraseTimer
+              interval: 2800
+              repeat: true
+              running: root.opened && root.activeStatus === "downloading"
+              onTriggered: activePhraseSwap.restart()
+            }
+
+            SequentialAnimation {
+              id: activePhraseSwap
+              PropertyAnimation { target: activeMeta; property: "opacity"; to: 0.0; duration: 180; easing.type: Easing.OutQuad }
+              ScriptAction { script: activeCard.phraseIndex = (activeCard.phraseIndex + 1) % activeCard.phrases.length }
+              PropertyAnimation { target: activeMeta; property: "opacity"; to: 1.0; duration: 260; easing.type: Easing.InQuad }
+            }
+
             Row {
-              visible: root.activeStatus === "downloading" || root.activeStatus === "completed"
+              visible: root.activeProgressPercent !== "" || root.activeProgressSize !== ""
               width: parent.width
-              spacing: Style.space(8)
+              spacing: Style.spacing.lg
 
               BorderSurface {
                 id: progressTrack
                 width: parent.width - (percentLabel.visible ? percentLabel.implicitWidth + parent.spacing : 0)
-                height: Style.space(10)
+                height: Style.spacing.xl
                 radius: Style.cornerRadius
                 color: Util.alpha(root.contentForeground, 0.12)
                 borderSpec: Border.none()
+                anchors.verticalCenter: parent.verticalCenter
 
                 BorderSurface {
                   width: parent.width * (root.activeProgressPercentValue / 100)
@@ -1109,75 +2120,16 @@ Panel {
 
             Text {
               visible: root.activeProgressSize !== "" || root.activeProgressSpeed !== ""
+              width: parent.width
               text: [
                 root.activeProgressSize,
-                root.activeProgressSpeed,
+                root.activeProgressSpeed ? "at " + root.activeProgressSpeed : "",
                 root.activeProgressEta ? "· " + root.activeProgressEta + " remaining" : ""
               ].filter(Boolean).join(" ")
               color: Qt.darker(root.contentForeground, 1.5)
               font.family: root.contentFontFamily
               font.pixelSize: Style.font.bodySmall
-            }
-
-            Text {
-              visible: root.activeStatus === "error" && root.activeError !== ""
-              width: parent.width
-              text: root.activeError
-              color: Color.urgent
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
-              wrapMode: Text.WordWrap
-            }
-
-            Button {
-              visible: root.canRetryAsWebClient
-              text: "Retry as web client"
-              fontSize: Style.font.bodySmall
-              bordered: true
-              foreground: root.contentForeground
-              fontFamily: root.contentFontFamily
-              onClicked: root.retryWithWebClient()
-            }
-
-            Text {
-              visible: root.activeStatus === "completed" && root.activeOutputPath !== ""
-              width: parent.width
-              text: root.activeOutputPath
-              color: Qt.darker(root.contentForeground, 1.5)
-              font.family: root.contentFontFamily
-              font.pixelSize: Style.font.bodySmall
               elide: Text.ElideRight
-            }
-
-            Row {
-              spacing: Style.space(8)
-
-              Button {
-                visible: root.activeStatus === "downloading"
-                text: "Cancel"
-                fontSize: Style.font.bodySmall
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.cancelActive()
-              }
-
-              Button {
-                visible: root.activeStatus === "completed" && root.activeOutputDir !== ""
-                text: "Open folder"
-                fontSize: Style.font.bodySmall
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.openFolder(root.activeOutputDir)
-              }
-
-              Button {
-                visible: root.activeStatus !== "downloading"
-                text: "Clear"
-                fontSize: Style.font.bodySmall
-                foreground: root.contentForeground
-                fontFamily: root.contentFontFamily
-                onClicked: root.clearActive()
-              }
             }
           }
         }
@@ -1185,13 +2137,14 @@ Panel {
         Column {
           visible: queueModel.count > 0
           width: parent.width
-          spacing: Style.space(8)
+          spacing: Style.spacing.md
 
           Text {
-            text: "Queue"
+            text: "QUEUE"
             color: Qt.darker(root.contentForeground, 1.5)
             font.family: root.contentFontFamily
-            font.pixelSize: Style.font.bodySmall
+            font.pixelSize: Style.font.caption
+            font.letterSpacing: 1
             font.bold: true
           }
 
@@ -1205,7 +2158,7 @@ Panel {
               required property string mode
 
               width: parent.width
-              height: queueRow.implicitHeight + Style.space(12)
+              height: queueRow.implicitHeight + Style.spacing.lg
               radius: Style.cornerRadius
               color: Style.controlFill(false, false, root.contentForeground, Color.accent)
               borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
@@ -1215,31 +2168,27 @@ Panel {
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                anchors.leftMargin: Style.space(10)
-                anchors.rightMargin: Style.space(10)
-                spacing: Style.space(8)
+                anchors.leftMargin: Style.spacing.lg
+                anchors.rightMargin: Style.spacing.lg
+                spacing: Style.spacing.lg
 
-                Column {
-                  width: parent.width - removeButton.width - parent.spacing
-                  spacing: Style.space(2)
+                Text {
+                  width: parent.width - modeText.implicitWidth - removeButton.width - parent.spacing * 2
+                  text: title || url
+                  color: root.contentForeground
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.bodySmall
+                  elide: Text.ElideRight
                   anchors.verticalCenter: parent.verticalCenter
+                }
 
-                  Text {
-                    width: parent.width
-                    text: title || url
-                    color: root.contentForeground
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.bodySmall
-                    elide: Text.ElideRight
-                  }
-
-                  Text {
-                    width: parent.width
-                    text: mode
-                    color: Qt.darker(root.contentForeground, 1.6)
-                    font.family: root.contentFontFamily
-                    font.pixelSize: Style.font.caption
-                  }
+                Text {
+                  id: modeText
+                  text: mode
+                  color: Qt.darker(root.contentForeground, 1.6)
+                  font.family: root.contentFontFamily
+                  font.pixelSize: Style.font.caption
+                  anchors.verticalCenter: parent.verticalCenter
                 }
 
                 PanelActionButton {
@@ -1255,34 +2204,88 @@ Panel {
           }
         }
 
-        Row {
-          spacing: Style.space(8)
-          visible: !root.extracting
+        // Save-to: plain form block, always editable — sits right above the commit buttons.
+        Column {
+          visible: root.mediaInfo !== null
+          width: parent.width
+          spacing: Style.spacing.md
 
-          Button {
-            visible: root.mediaInfo === null && root.activeStatus !== "downloading"
-            text: "Extract"
-            active: true
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-            onClicked: root.startExtraction()
+          TextField {
+            id: downloadDirField
+            width: parent.width
+            text: root.setting("downloadDir", "")
+            placeholderText: "~/Downloads"
+            activeFocusOnTab: false
+            onEditingFinished: root.setSetting("downloadDir", text)
+
+            Keys.onPressed: function(event) {
+              if (event.key === Qt.Key_Escape) {
+                keyCatcher.forceActiveFocus()
+                event.accepted = true
+              }
+            }
           }
+        }
 
-          Button {
-            visible: root.mediaInfo !== null && root.activeStatus !== "downloading"
-            text: "Download"
-            active: true
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-            onClicked: root.startDownload()
-          }
+        // Footer / commit actions — extra gap above marks "commit, not configure"
+        Button {
+          id: extractButton
+          visible: root.mediaInfo === null && root.activeStatus !== "downloading"
+          enabled: !root.extracting
+          width: parent.width
+          text: root.extracting ? "Extracting…" : "Extract"
+          active: !root.extracting
+          // Static dim while extracting — no pulse animation, the bar icon
+          // still pulses for activity.
+          opacity: root.extracting ? 0.7 : 1.0
+          foreground: root.contentForeground
+          fontFamily: root.contentFontFamily
+          onClicked: root.startExtraction()
+        }
 
-          Button {
-            visible: root.mediaInfo !== null && root.activeStatus !== "downloading"
-            text: "+ Queue"
-            foreground: root.contentForeground
-            fontFamily: root.contentFontFamily
-            onClicked: root.enqueueCurrent()
+        // Idle + queued items: kick the queue off without touching the panel.
+        Button {
+          visible: root.mediaInfo === null && root.activeStatus !== "downloading" && root.activeStatus !== "paused" && !root.extracting && queueModel.count > 0
+          width: parent.width
+          text: "Run queue (" + queueModel.count + ")"
+          foreground: root.contentForeground
+          fontFamily: root.contentFontFamily
+          onClicked: root.processQueue()
+        }
+
+        Item {
+          visible: !root.extracting && root.mediaInfo !== null && !root.showingDownloadedCard
+          width: parent.width
+          height: footerRow.height
+
+          Row {
+            id: footerRow
+            anchors.bottom: parent.bottom
+            width: parent.width
+            spacing: Style.spacing.lg
+
+            FooterButton {
+              visible: !root.downloadInProgress
+              primary: true
+              glyph: "\u2b07"
+              labelText: root.mediaInfo && root.mediaInfo.isPlaylist ? "Download all" : "Download"
+              valueText: Otoru.formatSize(Otoru.estimateSize(root.mediaInfo, root.makeJob()))
+              fg: root.contentForeground
+              fam: root.contentFontFamily
+              width: parent.width - queueButton.width - parent.spacing
+              onAct: root.startDownload()
+            }
+
+            FooterButton {
+              id: queueButton
+              glyph: "+"
+              labelText: root.downloadInProgress ? "Queue next" : "Queue"
+              // Full width while a download runs — Download is hidden then.
+              width: root.downloadInProgress ? parent.width : queueButton.implicitWidth
+              fg: root.contentForeground
+              fam: root.contentFontFamily
+              onAct: root.enqueueCurrent()
+            }
           }
         }
       }
