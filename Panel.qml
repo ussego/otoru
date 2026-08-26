@@ -36,6 +36,8 @@ component OptionRow: Column {
   property bool open: false
   property color fg: Color.foreground
   property string fam: Style.font.family
+  property color background: "transparent"
+  property bool hasBackground: false
 
   default property alias expanderContent: expanderSlot.data
   property alias trailing: trailingSlot.data
@@ -44,14 +46,32 @@ component OptionRow: Column {
   width: parent ? parent.width : 0
   spacing: Style.spacing.lg
 
-  CursorSurface {
-    id: header
+  BorderSurface {
     width: parent.width
+    height: contentTopInset + optionBody.implicitHeight + contentBottomInset
     radius: Style.cornerRadius
-    foreground: optRow.fg
-    hasCursor: hoverHandler.hovered
-    current: optRow.open
-    height: Math.max(glyphItem.height, headerLabel.implicitHeight) + Style.spacing.huge
+    color: optRow.hasBackground
+      ? optRow.background
+      : (optRow.open ? Style.normalFillFor(optRow.fg, Color.accent) : "transparent")
+    borderSpec: Border.none()
+
+    Column {
+      id: optionBody
+      anchors.left: parent.left
+      anchors.right: parent.right
+      anchors.top: parent.top
+      anchors.topMargin: parent.contentTopInset
+      anchors.leftMargin: parent.contentLeftInset
+      anchors.rightMargin: parent.contentRightInset
+      spacing: 0
+
+      CursorSurface {
+        id: header
+        width: parent.width
+        radius: Style.cornerRadius
+        foreground: optRow.fg
+        hasCursor: hoverHandler.hovered
+        height: Math.max(glyphItem.height, headerLabel.implicitHeight) + Style.spacing.huge + Style.spacing.lg
 
     readonly property bool hasValue: optRow.valueText !== ""
     readonly property real chevWidth: optRow.chevron ? chevronText.implicitWidth + Style.spacing.lg : 0
@@ -141,16 +161,27 @@ component OptionRow: Column {
     }
   }
 
-  Column {
-    id: expanderSlot
-    visible: optRow.open
-    width: parent.width
-    spacing: Style.spacing.lg
-  }
+      BorderSurface {
+        visible: optRow.open
+        width: parent.width
+        height: contentTopInset + expanderSlot.implicitHeight + contentBottomInset
+        radius: Style.cornerRadius
+        color: Style.normalFillFor(optRow.fg, Color.accent)
+        borderSpec: Border.none()
+        padding: Style.spacing.lg
 
-  PanelSeparator {
-    visible: optRow.open
-    foreground: optRow.fg
+        Column {
+          id: expanderSlot
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.topMargin: parent.contentTopInset
+          anchors.leftMargin: parent.contentLeftInset
+          anchors.rightMargin: parent.contentRightInset
+          spacing: Style.spacing.lg
+        }
+      }
+    }
   }
 }
 
@@ -657,8 +688,8 @@ component InputGlyphButton: Item {
   property string activeError: ""
   property string activeOutputPath: ""
   property string activeOutputDir: ""
+  property string _lastOutputPath: ""
   property bool pauseRequested: false
-  property real jobStartedAt: 0
 
   function makeJob() {
     return {
@@ -707,6 +738,7 @@ component InputGlyphButton: Item {
     root.activeError = ""
     root.activeOutputPath = ""
     root.activeOutputDir = ""
+    root._lastOutputPath = ""
     root.pauseRequested = false
     mkdirProc.command = Otoru.mkdirCommand(root.setting("downloadDir", ""), root.home)
     mkdirProc.running = true
@@ -729,7 +761,6 @@ component InputGlyphButton: Item {
     if (!root.activeJob) return
     downloadProc.command = Otoru.buildDownloadArgs(root.activeJob, root.settings, root.home, root.useWebClient)
     downloadProc.running = true
-    root.jobStartedAt = Date.now() / 1000
     root.activeStatus = "downloading"
   }
 
@@ -737,7 +768,13 @@ component InputGlyphButton: Item {
     id: downloadProc
     stdout: SplitParser {
       onRead: function(data) {
-        var p = Otoru.parseProgressLine(data)
+        var line = String(data).trim()
+        // yt-dlp --print after_move:filepath: the real output path.
+        if (line.charAt(0) === "/") {
+          root._lastOutputPath = line
+          return
+        }
+        var p = Otoru.parseProgressLine(line)
         if (p) {
           root.activeProgressPercent = p.percentText
           root.activeProgressPercentValue = p.percent
@@ -777,7 +814,7 @@ component InputGlyphButton: Item {
       }
     } else {
       root.activeStatus = "completed"
-      root.activeOutputPath = Otoru.guessOutputPath(root.settings, job, job.info, root.home)
+      root.activeOutputPath = root._lastOutputPath !== "" ? root._lastOutputPath : Otoru.guessOutputPath(root.settings, job, job.info, root.home)
       root.activeOutputDir = Otoru.expandHome(root.setting("downloadDir", ""), root.home)
       root.activeProgressPercent = "100%"
       root.activeProgressPercentValue = 100
@@ -791,8 +828,8 @@ component InputGlyphButton: Item {
       } else if (action === "open" && root.activeOutputDir !== "") {
         root.openFolder(root.activeOutputDir)
       } else if (action === "openFile") {
-        resolveProc.command = Otoru.resolveNewestCommand(root.activeOutputDir, root.jobStartedAt)
-        resolveProc.running = true
+        if (root._lastOutputPath !== "") root.openFile(root._lastOutputPath)
+        else if (root.activeOutputDir !== "") root.openFolder(root.activeOutputDir)
       }
       root.notifyComplete()
       // Only clear while the panel is visible — a download finishing in the
@@ -867,6 +904,7 @@ component InputGlyphButton: Item {
     root.activeProgressEta = ""
     root.activeError = ""
     root.activeOutputPath = ""
+    root._lastOutputPath = ""
     root.activeOutputDir = ""
   }
 
@@ -907,17 +945,6 @@ component InputGlyphButton: Item {
 
   Process { id: notifyProc }
   Process { id: copyPathProc }
-  Process {
-    id: resolveProc
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: {
-        var p = String(this.text || "").trim().split("\n")[0]
-        if (p !== "") root.openFile(p)
-        else if (root.activeOutputDir !== "") root.openFolder(root.activeOutputDir)
-      }
-    }
-  }
 
   function modeButtonLabel(mode) {
     if (mode === "video") return "Video"
@@ -1007,11 +1034,17 @@ component InputGlyphButton: Item {
       anchors.fill: parent
       blocked: root.anyFieldFocused() || cookiesFromBrowserDropdown.popupOpen
       onReturnRequested: {
-        if (root.mediaInfo && root.activeStatus !== "downloading") root.startDownload()
+        if (resetConfirm.opened) resetConfirm.confirmed()
+        else if (root.mediaInfo && root.activeStatus !== "downloading") root.startDownload()
         else if (!root.mediaInfo && !root.extracting) root.startExtraction()
       }
-      onCloseRequested: root.close()
-      onTabRequested: function(direction) { root.switchPanel(direction) }
+      onCloseRequested: {
+        if (resetConfirm.opened) resetConfirm.canceled()
+        else root.close()
+      }
+      onTabRequested: function(direction) {
+        if (!resetConfirm.opened) root.switchPanel(direction)
+      }
     }
 
     Flickable {
@@ -1091,6 +1124,7 @@ component InputGlyphButton: Item {
               }
             }
             onAccepted: {
+              if (resetConfirm.opened) return
               // Context-aware Enter: download when a result is ready,
               // extract otherwise (the README's two-Enter flow).
               if (root.mediaInfo && root.activeStatus !== "downloading") root.startDownload()
@@ -1098,6 +1132,10 @@ component InputGlyphButton: Item {
             }
 
             Keys.onPressed: function(event) {
+              if (resetConfirm.opened && (event.key === Qt.Key_Escape || event.key === Qt.Key_Return || event.key === Qt.Key_Enter)) {
+                event.accepted = true
+                return
+              }
               if (event.key === Qt.Key_Escape) {
                 root.close()
                 event.accepted = true
@@ -1290,12 +1328,14 @@ component InputGlyphButton: Item {
         OptionRow {
           // Playlist summary replaces mode/quality selection entirely.
           visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist === true
-          glyph: "\udb83\uddc2"
+          glyph: "\udb81\udc11"
           label: "Playlist"
           valueText: (root.mediaInfo ? String(root.mediaInfo.count) : "") + " items"
           chevron: false
           fg: root.contentForeground
           fam: root.contentFontFamily
+          hasBackground: true
+          background: Style.hoverFillFor(root.contentForeground, Color.accent)
         }
 
         OptionRow {
@@ -1523,7 +1563,7 @@ component InputGlyphButton: Item {
         }
 
         OptionRow {
-          visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist !== true
+          visible: root.mediaInfo !== null
           glyph: "\udb83\udea2"
           label: "Prefer DRC audio"
           chevron: false
@@ -1538,7 +1578,7 @@ component InputGlyphButton: Item {
         }
 
         OptionRow {
-          visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist !== true
+          visible: root.mediaInfo !== null
           glyph: "\udb83\udea9"
           label: "SponsorBlock"
           valueText: root.setting("sponsorBlock", false)
@@ -1901,6 +1941,15 @@ component InputGlyphButton: Item {
             Keys.onPressed: function(event) {
               if (event.key === Qt.Key_Escape) { keyCatcher.forceActiveFocus(); event.accepted = true }
             }
+          }
+
+          Button {
+            width: parent.width
+            text: "Reset settings to defaults"
+            fontSize: Style.font.bodySmall
+            foreground: root.contentForeground
+            fontFamily: root.contentFontFamily
+            onClicked: resetConfirm.opened = true
           }
           }
         }
@@ -2268,6 +2317,22 @@ component InputGlyphButton: Item {
           }
         }
       }
+    }
+
+    ConfirmDialog {
+      id: resetConfirm
+      anchors.fill: parent
+      message: "Reset all settings to their defaults? This clears your download directory, cookies, and other options."
+      confirmText: "Reset"
+      foreground: root.contentForeground
+      fontFamily: root.contentFontFamily
+      onConfirmed: {
+        resetConfirm.opened = false
+        root.settings = root.defaultSettings()
+        root.history = []
+        root.flushSettings()
+      }
+      onCanceled: resetConfirm.opened = false
     }
   }
 }

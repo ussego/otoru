@@ -307,7 +307,7 @@ function splitCustomArgs(argString) {
 }
 
 function buildDownloadArgs(job, settings, home, useWebClient) {
-  var args = ["yt-dlp", "--newline", "--no-warnings", "--no-colors", "--progress", "--progress-delta", "0.3", "--progress-template", progressTemplate()]
+  var args = ["yt-dlp", "--newline", "--no-warnings", "--no-colors", "--progress", "--progress-delta", "0.3", "--progress-template", progressTemplate(), "--print", "after_move:filepath"]
   if (useWebClient) args.push("--extractor-args", "youtube:player_client=web")
 
   var outDir = expandHome(settings.downloadDir, home)
@@ -335,10 +335,8 @@ function buildDownloadArgs(job, settings, home, useWebClient) {
     args = args.concat(splitCustomArgs(settings.customArgs))
   }
   if (settings.sponsorBlock === true) {
-    // ponytail: falls back to the common three when the list is emptied out.
-    var cats = Array.isArray(settings.sponsorBlockCategories) && settings.sponsorBlockCategories.length > 0
-      ? settings.sponsorBlockCategories.join(",") : "sponsor,selfpromo,interaction"
-    args.push("--sponsorblock-remove", cats)
+    var cats = Array.isArray(settings.sponsorBlockCategories) ? settings.sponsorBlockCategories.join(",") : ""
+    if (cats) args.push("--sponsorblock-remove", cats)
   }
   if (settings.useArchive === true) {
     args.push("--download-archive", outDir + "/.otoru-archive.txt")
@@ -431,14 +429,6 @@ function friendlyError(stderr, exitCode, exitStatus) {
   }
   var first = s.split("\n")[0] || ""
   return "Download failed" + (first ? ": " + first : "")
-}
-
-// ponytail: newest-file-after-timestamp heuristic; swap for --print
-// after_move:filepath plumbing if this ever misfires.
-function resolveNewestCommand(dir, sinceEpoch) {
-  return ["sh", "-c",
-    "find \"$1\" -maxdepth 1 -type f -newermt \"@$2\" ! -name \"*.part\" -printf \"%T@\\t%p\\n\" 2>/dev/null | sort -rn | head -n 1 | cut -f2-",
-    "otoru-resolve", String(dir), String(Math.floor(sinceEpoch))]
 }
 
 function guessOutputPath(settings, job, info, home) {
