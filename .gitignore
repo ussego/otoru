@@ -2,3 +2,6 @@
 .agents/
 .claude/
 skills-lock.json
+
+# Local tests (not part of the plugin)
+tests/
