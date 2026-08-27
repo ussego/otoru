@@ -1,4 +1,7 @@
-# ![Otoru icon](./icon.png) Otoru
+<h1 align="center" style="display: flex; align-items: center; justify-content: center; gap: 10px;">
+  <img src="./icon.png" alt="Otoru icon" width="32" height="32">
+  <span>Otoru</span>
+</h1>
 
 
 A lightweight, keyboard-first Quickshell bar widget for Omarchy that fronts `yt-dlp`. Paste a URL, press Enter, pick a mode, press Enter again to download.
