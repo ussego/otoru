@@ -1,8 +1,15 @@
-# Otoru
+# ![Otoru icon](./icon.png) Otoru
+
 
 A lightweight, keyboard-first Quickshell bar widget for Omarchy that fronts `yt-dlp`. Paste a URL, press Enter, pick a mode, press Enter again to download.
 
 ![otoru control panel](preview.png)
+
+<p align="center">
+  <a href="https://omarchyplugins.com/plugin.html?id=ussego.otoru" style="text-decoration: none;"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/https/badges.ussego.com/views/ussego.otoru.svg?logo=lu%3AEye&amp;size=xs&amp;color=ac3eea&amp;mode=dark"><img alt="views" src="https://shieldcn.dev/https/badges.ussego.com/views/ussego.otoru.svg?logo=lu%3AEye&amp;size=xs&amp;color=ac3eea&amp;mode=light"></picture></a>
+  <a href="https://omarchyplugins.com/plugin.html?id=ussego.otoru" style="text-decoration: none;"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/https/badges.ussego.com/copies/ussego.otoru.svg?logo=lu%3AEye&amp;size=xs&amp;color=ac3eea&amp;mode=dark"><img alt="copies" src="https://shieldcn.dev/https/badges.ussego.com/copies/ussego.otoru.svg?logo=lu%3AEye&amp;size=xs&amp;color=ac3eea&amp;mode=light"></picture></a>
+  <a href="https://omarchyplugins.com/plugin.html?id=ussego.otoru" style="text-decoration: none;"><picture><source media="(prefers-color-scheme: dark)" srcset="https://shieldcn.dev/https/badges.ussego.com/hearts/ussego.otoru.svg?logo=lu%3AEye&amp;size=xs&amp;color=ac3eea&amp;mode=dark"><img alt="hearts" src="https://shieldcn.dev/https/badges.ussego.com/hearts/ussego.otoru.svg?logo=lu%3AEye&amp;size=xs&amp;color=ac3eea&amp;mode=light"></picture></a>
+</p>
 
 ## Features
 
