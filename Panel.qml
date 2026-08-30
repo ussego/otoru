@@ -111,6 +111,7 @@ component OptionRow: Column {
     }
 
     Text {
+      textFormat: Text.PlainText
       id: headerLabel
       anchors.left: glyphItem.right
       anchors.leftMargin: Style.spacing.lg
@@ -124,6 +125,7 @@ component OptionRow: Column {
     }
 
     Text {
+      textFormat: Text.PlainText
       id: valueText
       visible: header.hasValue && trailingSlot.width === 0
       x: header.width - Style.spacing.xl - header.chevWidth - width - (trailingSlot.width ? trailingSlot.width + Style.spacing.lg : 0)
@@ -149,6 +151,7 @@ component OptionRow: Column {
     }
 
     Text {
+      textFormat: Text.PlainText
       id: chevronText
       visible: optRow.chevron && trailingSlot.width === 0
       anchors.right: parent.right
@@ -221,6 +224,7 @@ component FooterButton: BorderSurface {
 
     Text {
       anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
       text: fbtn.labelText
       color: fbtn.fg
       font.family: fbtn.fam
@@ -231,6 +235,7 @@ component FooterButton: BorderSurface {
     Text {
       visible: fbtn.valueText !== ""
       anchors.verticalCenter: parent.verticalCenter
+      textFormat: Text.PlainText
       text: fbtn.valueText
       color: Qt.darker(fbtn.fg, 1.3)
       font.family: fbtn.fam
@@ -1165,6 +1170,7 @@ component InputGlyphButton: Item {
 
             Text {
               width: parent.width
+              textFormat: Text.PlainText
               text: root.errorMessage
               color: Color.urgent
               font.family: root.contentFontFamily
@@ -1262,6 +1268,7 @@ component InputGlyphButton: Item {
         }
 
         Text {
+          textFormat: Text.PlainText
           id: inputHint
           visible: !root.extracting && root.activeStatus !== "downloading" && root.activeStatus !== "preparing"
           width: parent.width
@@ -1280,7 +1287,8 @@ component InputGlyphButton: Item {
         }
 
         Text {
-          id: extractingLabel
+          textFormat: Text.PlainText
+        id: extractingLabel
           visible: root.extracting
           text: "Extracting media information…"
           color: Qt.darker(root.contentForeground, 1.5)
@@ -1356,6 +1364,7 @@ component InputGlyphButton: Item {
                 color: Qt.rgba(0, 0, 0, 0.65)
 
                 Text {
+                  textFormat: Text.PlainText
                   id: durationBadgeText
                   anchors.centerIn: parent
                   text: Otoru.formatDuration(root.mediaInfo ? root.mediaInfo.duration : 0)
@@ -1373,6 +1382,7 @@ component InputGlyphButton: Item {
 
               Text {
                 width: parent.width
+                textFormat: Text.PlainText
                 text: root.mediaInfo ? root.mediaInfo.title : ""
                 color: root.contentForeground
                 font.family: root.contentFontFamily
@@ -1386,6 +1396,7 @@ component InputGlyphButton: Item {
               Text {
                 visible: root.mediaInfo && root.mediaInfo.uploader !== ""
                 width: parent.width
+                textFormat: Text.PlainText
                 text: root.mediaInfo ? root.mediaInfo.uploader : ""
                 color: Qt.darker(root.contentForeground, 1.5)
                 font.family: root.contentFontFamily
@@ -1445,6 +1456,7 @@ component InputGlyphButton: Item {
             spacing: Style.spacing.sm
 
             Text {
+              textFormat: Text.PlainText
               text: "QUALITY"
               color: Qt.darker(root.contentForeground, 1.5)
               font.family: root.contentFontFamily
@@ -1487,6 +1499,7 @@ component InputGlyphButton: Item {
             spacing: Style.spacing.sm
 
             Text {
+              textFormat: Text.PlainText
               text: "AUDIO FORMAT"
               color: Qt.darker(root.contentForeground, 1.5)
               font.family: root.contentFontFamily
@@ -1514,6 +1527,7 @@ component InputGlyphButton: Item {
 
             Text {
               visible: root.mediaInfo && root.mediaInfo.audioLanguages.length > 0
+              textFormat: Text.PlainText
               text: "TRACK"
               color: Qt.darker(root.contentForeground, 1.5)
               font.family: root.contentFontFamily
@@ -1666,6 +1680,7 @@ component InputGlyphButton: Item {
             }
 
             Text {
+              textFormat: Text.PlainText
               text: "SEGMENTS TO REMOVE"
               color: Qt.darker(root.contentForeground, 1.5)
               font.family: root.contentFontFamily
@@ -1786,6 +1801,7 @@ component InputGlyphButton: Item {
                 height: histLabel.implicitHeight + Style.spacing.sm
 
                 Text {
+                  textFormat: Text.PlainText
                   id: histLabel
                   anchors.left: parent.left
                   anchors.right: parent.right
@@ -2026,6 +2042,7 @@ component InputGlyphButton: Item {
           clip: true
 
           Text {
+            textFormat: Text.PlainText
             id: rawLogText
             anchors.fill: parent
             anchors.margins: Style.spacing.lg
@@ -2072,7 +2089,8 @@ component InputGlyphButton: Item {
               spacing: Style.spacing.lg
 
               Text {
-                id: activeHero
+                textFormat: Text.PlainText
+              id: activeHero
                 width: parent.width - activeActions.implicitWidth - parent.spacing
                 text: root.activeTitle !== "" ? root.activeTitle : "Transfer"
                 color: root.contentForeground
@@ -2145,7 +2163,8 @@ component InputGlyphButton: Item {
             }
 
             Text {
-              id: activeMeta
+              textFormat: Text.PlainText
+            id: activeMeta
               width: parent.width
               text: root.activeStatus === "downloading" ? activeCard.phrase.toUpperCase() :
                     root.activeStatus === "paused" ? "PAUSED" :
@@ -2201,7 +2220,8 @@ component InputGlyphButton: Item {
               }
 
               Text {
-                id: percentLabel
+                textFormat: Text.PlainText
+              id: percentLabel
                 visible: root.activeProgressPercent !== ""
                 text: root.activeProgressPercent
                 color: root.contentForeground
@@ -2215,6 +2235,7 @@ component InputGlyphButton: Item {
             Text {
               visible: root.activeProgressSize !== "" || root.activeProgressSpeed !== ""
               width: parent.width
+              textFormat: Text.PlainText
               text: [
                 root.activeProgressSize,
                 root.activeProgressSpeed ? "at " + root.activeProgressSpeed : "",
@@ -2234,6 +2255,7 @@ component InputGlyphButton: Item {
           spacing: Style.spacing.md
 
           Text {
+            textFormat: Text.PlainText
             text: "QUEUE"
             color: Qt.darker(root.contentForeground, 1.5)
             font.family: root.contentFontFamily
@@ -2268,6 +2290,7 @@ component InputGlyphButton: Item {
 
                 Text {
                   width: parent.width - modeText.implicitWidth - removeButton.width - parent.spacing * 2
+                  textFormat: Text.PlainText
                   text: title || url
                   color: root.contentForeground
                   font.family: root.contentFontFamily
@@ -2277,6 +2300,7 @@ component InputGlyphButton: Item {
                 }
 
                 Text {
+                  textFormat: Text.PlainText
                   id: modeText
                   text: mode
                   color: Qt.darker(root.contentForeground, 1.6)
