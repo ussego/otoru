@@ -631,7 +631,12 @@ component InputGlyphButton: Item {
       return
     }
     root.mediaInfo = info
-    root.availableQualities = Otoru.availableVideoQualities(info.maxHeight)
+    // Playlists come back flat (no formats), so offer the full quality ladder
+    // rather than nothing — otherwise the download falls through to yt-dlp's
+    // default selection with no way to pick video/audio or a resolution.
+    root.availableQualities = info.isPlaylist === true
+      ? Otoru.allVideoQualities()
+      : Otoru.availableVideoQualities(info.maxHeight)
     if (!info.hasAudio && root.downloadMode === "audio") root.downloadMode = "video"
     if (root.availableQualities.indexOf(root.videoQuality) < 0) root.videoQuality = "best"
     // Some sites (x.com amplify videos) omit the thumbnail from the yt-dlp
@@ -1396,7 +1401,7 @@ component InputGlyphButton: Item {
           spacing: Style.spacing.sm
 
         OptionRow {
-          // Playlist summary replaces mode/quality selection entirely.
+          // Summary only — mode/quality selection below applies to every item.
           visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist === true
           glyph: "\udb81\udc11"
           label: "Playlist"
@@ -1409,7 +1414,7 @@ component InputGlyphButton: Item {
         }
 
         OptionRow {
-          visible: root.mediaInfo !== null && root.mediaInfo.isPlaylist !== true
+          visible: root.mediaInfo !== null
           glyph: "\uf03d"
           label: "Mode"
           valueText: root.modeValueText()

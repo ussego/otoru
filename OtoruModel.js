@@ -183,13 +183,21 @@ function parseInfo(raw) {
   }
 }
 
+var VIDEO_QUALITIES = [2160, 1440, 1080, 720, 480, 360, 240]
+
 function availableVideoQualities(maxHeight) {
-  var thresholds = [2160, 1440, 1080, 720, 480, 360, 240]
   var out = []
-  for (var i = 0; i < thresholds.length; i++) {
-    if (maxHeight >= thresholds[i]) out.push(String(thresholds[i]))
+  for (var i = 0; i < VIDEO_QUALITIES.length; i++) {
+    if (maxHeight >= VIDEO_QUALITIES[i]) out.push(String(VIDEO_QUALITIES[i]))
   }
   return out
+}
+
+// Flat playlist extraction carries no formats, so the real max height is
+// unknown — offer every rung and let yt-dlp cap each entry on its own
+// (`height<=` selectors degrade to the entry's best when it can't be met).
+function allVideoQualities() {
+  return VIDEO_QUALITIES.map(String)
 }
 
 function bestAudioFormat(formats, lang) {
@@ -379,9 +387,7 @@ function buildDownloadArgs(job, settings, home, useWebClient) {
   // other sites fall through the alternate selectors unchanged.
   var preferDrc = settings.preferDrc === true
   var mode = job.mode || "best"
-  if (mode === "playlist") {
-    // No format selection — yt-dlp picks best per entry and enumerates itself.
-  } else if (mode === "audio") {
+  if (mode === "audio") {
     args.push("-x")
     var af = job.audioFormat || settings.audioFormat || "best"
     if (af && String(af) !== "best") args.push("--audio-format", String(af))
