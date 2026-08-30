@@ -96,9 +96,20 @@ function parseVideoInfo(info) {
 
   var hasSubs = false
   var hasAutoSubs = false
+  var subLanguages = []
   try {
     hasSubs = info.subtitles && Object.keys(info.subtitles).length > 0
     hasAutoSubs = info.automatic_captions && Object.keys(info.automatic_captions).length > 0
+    // Every language yt-dlp reported, manual + auto, deduped and sorted.
+    var subSets = [info.subtitles, info.automatic_captions]
+    for (var si = 0; si < subSets.length; si++) {
+      var langs = subSets[si] ? Object.keys(subSets[si]) : []
+      for (var li = 0; li < langs.length; li++) {
+        var code = String(langs[li]).toLowerCase()
+        if (code && subLanguages.indexOf(code) < 0) subLanguages.push(code)
+      }
+    }
+    subLanguages.sort()
   } catch (e2) { }
 
   // Qt here has no WebP image plugin, so prefer non-webp URLs and rewrite
@@ -126,6 +137,7 @@ function parseVideoInfo(info) {
     audioLanguages: audioLanguages,
     hasSubs: hasSubs,
     hasAutoSubs: hasAutoSubs,
+    subLanguages: subLanguages,
     webpage_url: String(info.webpage_url || "")
   }
 }
@@ -159,6 +171,7 @@ function parseInfo(raw) {
         audioLanguages: [],
         hasSubs: false,
         hasAutoSubs: false,
+        subLanguages: [],
         count: Number(info.playlist_count) || entries.length,
         webpage_url: String(info.webpage_url || "")
       }
@@ -352,7 +365,14 @@ function buildDownloadArgs(job, settings, home, useWebClient) {
     var subLang = String(settings.subLanguage || "all").trim()
     args.push("--sub-langs", subLang || "all")
     if (settings.embedSubs === true) args.push("--embed-subs")
-    if (settings.includeAutoSubs === true) args.push("--write-auto-subs")
+    // Embedding manual subs is a no-op on auto-caption-only videos
+    // (--embed-subs fetches only manually uploaded ones); pull in the auto
+    // captions instead. Videos with manual subs stay manual-only unless the
+    // user also opts into auto captions.
+    if (settings.includeAutoSubs === true ||
+        (settings.embedSubs === true && job.info && !job.info.hasSubs && job.info.hasAutoSubs)) {
+      args.push("--write-auto-subs")
+    }
   }
 
   // ponytail: DRC preference relies on YouTube's "-drc" format-id suffix;
