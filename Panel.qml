@@ -654,7 +654,7 @@ component InputGlyphButton: Item {
     if (!url) return
     root._thumbScrapeUrl = String(url)
     if (thumbScrapeProc.running) thumbScrapeProc.running = false // restart for a new URL
-    thumbScrapeProc.command = ["curl", "-sL", "--max-time", "15",
+    thumbScrapeProc.command = ["curl", "-sL", "--max-time", "15", "--max-filesize", "1048576",
       "-A", "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
       String(url)]
     thumbScrapeProc.running = true
