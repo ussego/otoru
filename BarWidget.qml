@@ -71,6 +71,10 @@ BarWidget {
     id: button
     anchors.fill: parent
     bar: root.bar
+    // With an empty label, WidgetButton falls back to its content-sized width
+    // (~17px), which is narrower than every other icon in the bar. Pin it to the
+    // standard icon slot, matching what BarIconButton does.
+    fixedWidth: vertical ? -1 : Style.bar.iconSlot
     text: ""
     labelVisible: false
     hasVisualContent: true
