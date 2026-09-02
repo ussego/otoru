@@ -540,8 +540,8 @@ component InputGlyphButton: Item {
   function appendRawLog(data) {
     var line = String(data || "")
     if (!line) return
-    root.rawLog += line + "\n"
-    if (root.activeJob) root.activeJob.log = (root.activeJob.log || "") + line + "\n"
+    root.rawLog = Otoru.capLog(root.rawLog + line + "\n")
+    if (root.activeJob) root.activeJob.log = Otoru.capLog((root.activeJob.log || "") + line + "\n")
   }
 
   property var history: []
@@ -605,7 +605,7 @@ component InputGlyphButton: Item {
       }
       stderr: SplitParser {
         onRead: function(data) {
-          if (root.activeInfoProc === infoProc) root.rawLog += data + "\n"
+          if (root.activeInfoProc === infoProc) root.rawLog = Otoru.capLog(root.rawLog + data + "\n")
         }
       }
       onExited: function(exitCode, exitStatus) {
@@ -651,7 +651,7 @@ component InputGlyphButton: Item {
 
   property string _thumbScrapeUrl: ""
   function scrapeThumbnail(url) {
-    if (!url) return
+    if (!Otoru.isWebUrl(url)) return // yt-dlp JSON is remote-controlled; only http(s) reaches curl
     root._thumbScrapeUrl = String(url)
     if (thumbScrapeProc.running) thumbScrapeProc.running = false // restart for a new URL
     thumbScrapeProc.command = ["curl", "-sL", "--max-time", "15", "--max-filesize", "1048576",
@@ -669,6 +669,7 @@ component InputGlyphButton: Item {
         var m = /(?:og:image|og:image:secure_url)"\s+content="([^"]+)"/i.exec(html)
         if (!m) return
         var thumb = m[1].replace(/&amp;/g, "&") // HTML entities in the meta tag
+        if (!Otoru.isWebUrl(thumb)) return // scraped HTML is remote-controlled too
         // Vimeo og:image defaults to webp; Qt has no webp plugin — ask for jpg.
         if (/vimeocdn\.com/.test(thumb)) thumb = thumb.replace(/([?&])f=webp/, "$1f=jpg")
         // Only apply to the media card the scrape was started for.
@@ -1332,11 +1333,12 @@ component InputGlyphButton: Item {
                 color: Style.controlFill(false, false, root.contentForeground, Color.accent)
                 borderSpec: Border.controlSpec("normal", root.contentForeground, Color.accent)
                 clip: true
-                visible: root.mediaInfo && (root.mediaInfo.thumbnail !== "" || root._fallbackThumb !== "")
+                visible: root.mediaInfo && (Otoru.isWebUrl(root.mediaInfo.thumbnail) || Otoru.isWebUrl(root._fallbackThumb))
 
                 Image {
                   anchors.fill: parent
-                  source: root._fallbackThumb !== "" ? root._fallbackThumb : (root.mediaInfo ? root.mediaInfo.thumbnail : "")
+                  source: Otoru.isWebUrl(root._fallbackThumb) ? root._fallbackThumb
+                    : (root.mediaInfo && Otoru.isWebUrl(root.mediaInfo.thumbnail) ? root.mediaInfo.thumbnail : "")
                   fillMode: Image.PreserveAspectCrop
                   asynchronous: true
 

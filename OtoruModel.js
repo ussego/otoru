@@ -288,6 +288,13 @@ function parseProgressLine(line) {
   }
 }
 
+// yt-dlp JSON and scraped page HTML are remote-controlled, so only http(s)
+// URLs may reach curl or the QML image loader. Anything else (file:, ftp:,
+// intranet-only schemes) is rejected before the sinks.
+function isWebUrl(url) {
+  return /^https?:\/\//i.test(String(url || ""))
+}
+
 function infoCommand(url, proxy, useWebClient, settings, home) {
   var args = ["yt-dlp", "--no-warnings", "--dump-single-json", "--skip-download"]
   // Search queries need real (non-flat) extraction to return the resolved
@@ -304,8 +311,11 @@ function infoCommand(url, proxy, useWebClient, settings, home) {
   args.push(String(url))
   // Cap the producer-side output at 1MB so a large playlist JSON can't
   // exhaust the long-lived shell process. "$@" passes each arg as a
-  // separate parameter — no shell interpolation of the URL.
-  return ["sh", "-c", "exec \"$@\" 2>&1 | head -c 1048576", "otoru-info"].concat(args)
+  // separate parameter — no shell interpolation of the URL. Only stdout is
+  // piped through head: stderr stays on fd 2 for the Process's error parser,
+  // and pipefail (bash; sh may not support it) keeps yt-dlp's exit status —
+  // head's 0 would otherwise mask every extraction failure.
+  return ["bash", "-c", "set -o pipefail; exec \"$@\" | head -c 1048576", "otoru-info"].concat(args)
 }
 
 function versionCommand() {
@@ -421,6 +431,14 @@ function buildDownloadArgs(job, settings, home, useWebClient) {
   args.push(String(job.url))
 
   return ["sh", "-c", "exec env PYTHONUNBUFFERED=1 \"$@\" 2>&1", "otoru-dl"].concat(args)
+}
+
+// Raw logs are display-only diagnostics; keep the tail bounded so chatty
+// extractor output can't grow them without bound. Errors land at the end,
+// which is where friendlyError() reads.
+function capLog(text) {
+  var s = String(text || "")
+  return s.length > 65536 ? s.substring(s.length - 65536) : s
 }
 
 function friendlyError(stderr, exitCode, exitStatus) {
