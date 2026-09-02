@@ -302,7 +302,10 @@ function infoCommand(url, proxy, useWebClient, settings, home) {
     args.push("--cookies", expandHome(String(settings.cookies).trim(), home))
   }
   args.push(String(url))
-  return args
+  // Cap the producer-side output at 1MB so a large playlist JSON can't
+  // exhaust the long-lived shell process. "$@" passes each arg as a
+  // separate parameter — no shell interpolation of the URL.
+  return ["sh", "-c", "exec \"$@\" 2>&1 | head -c 1048576", "otoru-info"].concat(args)
 }
 
 function versionCommand() {
